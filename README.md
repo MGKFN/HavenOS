@@ -1,3 +1,3 @@
-# HavenOS
-HavenOS - A Linux-based OS by TechHaven Studios
+# MorrowOS
+MorrowOS - A Linux-based OS by TechHaven Studios
 it's aimed towards low-end hardware, and thats the key...
