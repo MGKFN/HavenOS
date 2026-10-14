@@ -42,6 +42,12 @@
 #include <haven/random.h>
 #include <haven/proc.h>
 #include <haven/errno.h>
+#include <haven/device.h>
+#include <haven/block.h>
+#include <haven/pci.h>
+#include <haven/ata.h>
+#include <haven/input.h>
+#include <haven/virtio.h>
 
 /*
  * Is `flag` present in the kernel command line, as a whole word?
@@ -329,6 +335,31 @@ void haven_kmain(struct boot_info *bi)
 	   (stage 10), the syscall entry (stage 11) and a filesystem to
 	   load executables from (stage 12). */
 	proc_init();
+
+	/* ── Stage 14: devices ──────────────────────────────────────────
+	   Provides: hardware.
+	   Requires: everything above -- a driver may allocate, map MMIO,
+	   take an interrupt, register a /dev node and block.
+
+	   The order within this stage is the only part that is ordered by
+	   dependency rather than by preference: the block layer must exist
+	   before a disk driver registers a disk, and /dev must be mounted
+	   before any driver publishes a node.  Beyond that, drivers are
+	   probed by the bus that finds them, not called by name -- which is
+	   the arrangement that makes HavenDOS's boot-order reporting bugs
+	   impossible here. */
+	device_init();
+	block_init();
+
+	rtc_init();
+	ps2kbd_init();
+
+	pci_init();
+	ata_init();
+	virtio_blk_init();
+
+	device_dump();
+	block_dump();
 
 	/* ── Stage 14: report, and verify on request ───────────────────── */
 	pmm_dump();

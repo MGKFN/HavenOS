@@ -101,4 +101,7 @@ void time_format(const struct haven_tm *tm, char *buf, size_t bufsz);
    plausible wrong date. */
 int  platform_read_rtc(struct haven_tm *out);
 
+/* Bring up the platform's real-time clock. */
+void rtc_init(void);
+
 #endif /* _HAVEN_TIME_H */
