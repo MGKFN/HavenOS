@@ -118,6 +118,21 @@ recommended way to capture a boot on physical machines.
 - [User guide](docs/USER.md) — booting and using the system
 - [ARM64 porting guide](docs/PORTING_ARM64.md) — the AArch64 path
 - [HavenDOS heritage](docs/HAVENDOS_HERITAGE.md) — what was inherited and what changed
+- [Release notes](RELEASE_NOTES.md) — this release in detail
+- [Changelog](CHANGELOG.md) — what changed, and what broke on the way
+
+## Releases
+
+```bash
+make release
+```
+
+Builds the kernel, runs every test, assembles `dist/havenos-<version>/`
+with the source, build system, documentation, licence and bootable ISO,
+produces `dist/havenos-<version>.zip` with a SHA-256 sum, and then
+verifies the archive: that every source file the build compiles is inside
+it, that no build output leaked in, that nothing escapes the top-level
+directory, and that the extracted archive actually builds.
 
 ## License
 

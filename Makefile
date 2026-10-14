@@ -251,7 +251,7 @@ portability:
 # --------------------------------------------------------------- release
 
 .PHONY: release
-release: check iso
+release: check docs iso
 	$(Q)./scripts/package-release.sh $(VERSION)
 
 .PHONY: docs
