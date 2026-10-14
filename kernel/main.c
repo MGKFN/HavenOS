@@ -30,11 +30,18 @@
 #include <haven/smp.h>
 #include <haven/string.h>
 #include <haven/version.h>
+#include <haven/printf.h>
 #include <haven/irq.h>
 #include <haven/time.h>
 #include <haven/sched.h>
 #include <haven/syscall.h>
 #include <haven/selftest.h>
+#include <haven/vfs.h>
+#include <haven/ramfs.h>
+#include <haven/devfs.h>
+#include <haven/random.h>
+#include <haven/proc.h>
+#include <haven/errno.h>
 
 /*
  * Is `flag` present in the kernel command line, as a whole word?
@@ -63,6 +70,64 @@ static bool cmdline_has(const struct boot_info *bi, const char *flag)
 			return true;
 	}
 	return false;
+}
+
+/*
+ * Build the initial namespace.
+ *
+ * A RAM filesystem at the root and a device filesystem at /dev, with the
+ * standard directories created so that anything looking for /tmp or /etc
+ * finds them.  HavenDOS created its equivalent set in create_sysfiles(),
+ * writing README.TXT, CHANGELOG.TXT and an ETC directory into its ramfs
+ * on every boot; the same idea, with real directories rather than names
+ * containing slashes.
+ */
+static void mount_root_filesystems(void)
+{
+	int rc = ramfs_mount_at("/");
+	if (rc != 0)
+		panic("vfs: cannot mount the root filesystem: %s",
+		      haven_strerror(rc));
+
+	/* Standard directories.  Created before /dev is mounted over one of
+	   them, so the mount point exists as a directory either way. */
+	static const char *const dirs[] = {
+		"/dev", "/tmp", "/etc", "/bin", "/home", "/var", "/proc",
+	};
+	for (size_t i = 0; i < ARRAY_SIZE(dirs); i++) {
+		rc = vfs_mkdir(dirs[i], VFS_PERM_DEFAULT_DIR);
+		if (rc != 0 && rc != -HAVEN_EEXIST)
+			kwarn("vfs: cannot create %s: %s", dirs[i],
+			      haven_strerror(rc));
+	}
+
+	rc = devfs_mount_at("/dev");
+	if (rc != 0) {
+		/* Not fatal: the kernel log still works, and saying so is
+		   more useful than stopping the boot. */
+		kerr("vfs: cannot mount /dev: %s; devices will not be "
+		     "reachable as files", haven_strerror(rc));
+	} else {
+		mem_devices_init();
+	}
+
+	/* A release file, generated from the one version constant rather
+	   than written as a literal -- which is the drift HavenDOS's
+	   ETC/SYSCONF.TXT suffered, reporting VERSION=0.6.1 while the
+	   kernel was 0.7.18. */
+	char release[256];
+	int n = snprintf(release, sizeof(release),
+	                 "NAME=HavenOS\n"
+	                 "VERSION=%s\n"
+	                 "CODENAME=%s\n"
+	                 "ARCH=%s\n"
+	                 "BUILD_DATE=%s\n"
+	                 "BUILD_REV=%s\n"
+	                 "ANCESTOR=HavenDOS\n",
+	                 HAVENOS_VERSION, HAVENOS_CODENAME, HAVENOS_ARCH,
+	                 HAVENOS_BUILD_DATE, HAVENOS_BUILD_REV);
+	if (n > 0)
+		vfs_write_file("/etc/os-release", release, (size_t)n);
 }
 
 static void print_banner(const struct boot_info *bi)
@@ -251,10 +316,25 @@ void haven_kmain(struct boot_info *bi)
 	   syscall can block. */
 	syscall_init();
 
-	/* ── Stage 12: report, and verify on request ───────────────────── */
+	/* ── Stage 12: filesystems ──────────────────────────────────────
+	   Provides: a namespace, /dev, and the file-backed syscalls.
+	   Requires: the allocator (nodes and open-file structures) and
+	   mutexes (which block, so the scheduler must be running). */
+	vfs_init();
+	mount_root_filesystems();
+
+	/* ── Stage 13: processes ────────────────────────────────────────
+	   Provides: address-space isolation and ring-3 execution.
+	   Requires: user segments and a TSS (stage 8), the scheduler
+	   (stage 10), the syscall entry (stage 11) and a filesystem to
+	   load executables from (stage 12). */
+	proc_init();
+
+	/* ── Stage 14: report, and verify on request ───────────────────── */
 	pmm_dump();
 	kmalloc_dump();
 	sched_dump();
+	vfs_dump();
 
 	if (cmdline_has(bi, "selftest")) {
 		bool ok = selftest_run_all();

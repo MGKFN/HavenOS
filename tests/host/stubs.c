@@ -29,6 +29,7 @@
 #include <haven/console.h>
 #include <haven/panic.h>
 #include <haven/printf.h>
+#include <haven/time.h>
 
 #include "harness.h"
 
@@ -199,6 +200,20 @@ nstime_t arch_time_ns(void)
 }
 
 void arch_delay_us(uint64_t us) { (void)us; }
+
+uint64_t arch_clock_hz(void)     { return 1000000000ULL; }
+bool     arch_clock_reliable(void) { return true; }
+
+/* ── Time ────────────────────────────────────────────────────────────── */
+
+nstime_t time_ns(void)   { return arch_time_ns(); }
+uint64_t time_ms(void)   { return arch_time_ns() / 1000000ULL; }
+uint64_t time_ticks(void) { return arch_time_ns() / 10000000ULL; }
+
+void time_delay_us(uint64_t us) { (void)us; }
+void time_delay_ms(uint64_t ms) { (void)ms; }
+int  time_sleep_ms(uint64_t ms) { (void)ms; return 0; }
+int  time_sleep_ns(nstime_t ns) { (void)ns; return 0; }
 
 void arch_tlb_flush_page(vaddr_t va) { (void)va; }
 void arch_tlb_flush_all(void) { }

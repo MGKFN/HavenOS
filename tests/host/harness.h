@@ -154,3 +154,14 @@ void        haven_test_clear_log(void);
 int haven_test_report(const char *suite);
 
 #endif /* HAVEN_TEST_HARNESS_H */
+
+/* ── Provided by stubs_mm.c, for tests of layers above memory management ── */
+
+struct arch_pagetable;
+
+void     haven_test_reset_pmm(void);
+uint64_t haven_test_pages_handed_out(void);
+uint64_t haven_test_live_allocations(void);
+uint32_t haven_test_pt_prot(struct arch_pagetable *pt, uint64_t va);
+size_t   haven_test_pt_count(struct arch_pagetable *pt);
+int      haven_test_irq_depth(void);

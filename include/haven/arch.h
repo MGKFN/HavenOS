@@ -142,6 +142,10 @@ void arch_context_switch(struct arch_context *from, struct arch_context *to);
 /* First entry into a context that has never run. */
 void arch_context_start(struct arch_context *to) HAVEN_NORETURN;
 
+/* Leave ring 0 for the given user entry point and stack.  Never returns:
+   the only way back into the kernel is a trap or a system call. */
+void arch_enter_user(vaddr_t entry, vaddr_t stack) HAVEN_NORETURN;
+
 /* Per-CPU pointer the entry/exit paths use to find the current thread. */
 void  arch_set_current_thread(void *thread);
 void *arch_get_current_thread(void);

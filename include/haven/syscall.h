@@ -143,9 +143,10 @@ SYSCALL_DECLARE(sysinfo);
 SYSCALL_DECLARE(thread_create);
 SYSCALL_DECLARE(thread_join);
 
-/* The current process's id.  Weakly defined in kernel/syscall/syscall.c
-   so the dispatcher links before the process layer exists. */
-pid_t_k proc_current_pid(void);
+/* proc_current_pid() is declared in <haven/proc.h>.  It is weakly
+   defined in kernel/syscall/syscall.c so the dispatcher links before the
+   process layer exists; the real definition in kernel/proc/proc.c wins
+   when that file is present. */
 
 struct haven_utsname {
 	char sysname[32];

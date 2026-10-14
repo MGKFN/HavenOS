@@ -23,6 +23,7 @@
 #include <haven/string.h>
 #include <haven/version.h>
 #include <haven/mm.h>
+#include <haven/proc.h>
 
 static struct syscall_stats stats;
 

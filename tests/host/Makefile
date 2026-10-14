@@ -56,15 +56,15 @@ KSRC_LIB   := $(TOP)/lib/string.c $(TOP)/lib/printf.c
 KSRC_PMM   := $(TOP)/kernel/mm/pmm.c
 KSRC_KMAL  := $(TOP)/kernel/mm/pmm.c $(TOP)/kernel/mm/kmalloc.c \
               $(TOP)/kernel/mm/vmm.c
-KSRC_VFS   := $(TOP)/fs/vfs.c $(TOP)/fs/ramfs.c $(TOP)/kernel/mm/pmm.c \
-              $(TOP)/kernel/mm/kmalloc.c $(TOP)/kernel/mm/vmm.c
+KSRC_VFS   := $(TOP)/fs/vfs.c $(TOP)/fs/ramfs.c $(TOP)/kernel/sync/spinlock.c \
+              $(TOP)/kernel/sync/mutex.c $(TOP)/kernel/errno.c
 KSRC_FAT   := $(TOP)/fs/fat/fat.c
-KSRC_ELF   := $(TOP)/kernel/proc/elf.c
+KSRC_ELF   := $(TOP)/kernel/proc/elf.c $(TOP)/kernel/errno.c
 KSRC_SCHED := $(TOP)/kernel/sched/sched_core.c
 
 COMMON := stubs.c $(KSRC_LIB)
 
-TESTS := test_string test_printf test_list test_pmm
+TESTS := test_string test_printf test_list test_pmm test_vfs test_elf
 
 # Suites are added here as the subsystems they cover land.
 -include tests.mk
@@ -82,6 +82,15 @@ test_list: test_list.c $(COMMON)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 test_pmm: test_pmm.c $(COMMON) $(KSRC_PMM)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# Upper layers get stubs_mm.c instead of the real allocators: these tests
+# are about path resolution and segment validation, and routing every
+# allocation through a buddy allocator would add a second subject.
+test_vfs: test_vfs.c $(COMMON) stubs_mm.c $(KSRC_VFS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+test_elf: test_elf.c $(COMMON) stubs_mm.c $(KSRC_ELF)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 run: all

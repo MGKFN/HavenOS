@@ -29,6 +29,7 @@
 #include <haven/string.h>
 #include <haven/arch/x86_64/gdt.h>
 #include <haven/arch/x86_64/memlayout.h>
+#include <haven/console.h>
 
 /* What arch_context_switch() reads and writes.  Only `rsp` is touched by
    the switch itself; the rest of the state lives on the thread's own
@@ -121,4 +122,69 @@ void arch_context_init_user(struct arch_context *ctx, vaddr_t kstack_top,
 	*--sp = 0;   /* r15 */
 
 	ctx->rsp = (uint64_t)(vaddr_t)sp;
+}
+
+/*
+ * Leave ring 0 for user mode, now.
+ *
+ * Unlike arch_context_init_user(), which fabricates a context for the
+ * scheduler to resume later, this is called by a thread that is already
+ * running and wants to become a user thread immediately -- which is what
+ * exec does.  It builds the iretq frame on the current stack and executes
+ * the return, so nothing after it ever runs.
+ */
+void arch_enter_user(vaddr_t entry, vaddr_t stack)
+{
+	HAVEN_ASSERT_MSG(is_user_addr(entry),
+	                 "arch_enter_user: entry 0x%llx is not a user address",
+	                 (unsigned long long)entry);
+	HAVEN_ASSERT_MSG(is_user_addr(stack),
+	                 "arch_enter_user: stack 0x%llx is not a user address",
+	                 (unsigned long long)stack);
+
+	/* Interrupts off while the frame is built: a context switch between
+	   constructing the frame and executing the iretq would resume this
+	   thread with a half-built frame on its stack. */
+	arch_irq_disable();
+
+	__asm__ volatile(
+		/* GS must stop pointing at the kernel's per-CPU block before
+		   user code runs; this is the counterpart of the swapgs on
+		   every entry path. */
+		"swapgs\n\t"
+
+		"pushq %[ss]\n\t"
+		"pushq %[sp]\n\t"
+		"pushq %[flags]\n\t"
+		"pushq %[cs]\n\t"
+		"pushq %[ip]\n\t"
+
+		/* Zero everything the new program has no business inheriting:
+		   a register still holding a kernel pointer is a disclosure
+		   the process did nothing to earn. */
+		"xorl %%eax, %%eax\n\t"
+		"xorl %%ebx, %%ebx\n\t"
+		"xorl %%ecx, %%ecx\n\t"
+		"xorl %%edx, %%edx\n\t"
+		"xorl %%esi, %%esi\n\t"
+		"xorl %%edi, %%edi\n\t"
+		"xorl %%ebp, %%ebp\n\t"
+		"xorl %%r8d,  %%r8d\n\t"
+		"xorl %%r9d,  %%r9d\n\t"
+		"xorl %%r10d, %%r10d\n\t"
+		"xorl %%r11d, %%r11d\n\t"
+		"xorl %%r12d, %%r12d\n\t"
+		"xorl %%r13d, %%r13d\n\t"
+		"xorl %%r14d, %%r14d\n\t"
+		"xorl %%r15d, %%r15d\n\t"
+
+		"iretq\n"
+		:: [ss]    "i"((uint64_t)GDT_SEL_USER_DATA),
+		   [sp]    "r"((uint64_t)stack),
+		   [flags] "i"(INITIAL_RFLAGS),
+		   [cs]    "i"((uint64_t)GDT_SEL_USER_CODE),
+		   [ip]    "r"((uint64_t)entry)
+		: "memory");
+
+	HAVEN_UNREACHABLE();
 }
