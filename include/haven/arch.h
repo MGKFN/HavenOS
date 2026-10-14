@@ -92,6 +92,20 @@ paddr_t arch_pt_translate(struct arch_pagetable *pt, vaddr_t va);
 void  arch_tlb_flush_page(vaddr_t va);
 void  arch_tlb_flush_all(void);
 
+/* Build the kernel address space: an empty root, then the direct map and
+   the kernel image window, then activate it and discard the boot-time
+   identity map.  Declared here (rather than only in the architecture's
+   private header) because kernel/mm/vmm.c drives the sequence and must
+   stay architecture-neutral. */
+void arch_pt_init_kernel(void);
+int  arch_pt_map_hhdm(paddr_t pa, size_t len);
+int  arch_pt_map_kernel_image(paddr_t phys_start, paddr_t phys_end);
+void arch_pt_activate_kernel(void);
+void arch_pt_drop_identity_map(void);
+
+/* Page-table pages currently owned by the kernel, for `meminfo`. */
+uint64_t arch_pt_page_count(void);
+
 /* The direct map of all physical RAM.  Both directions are pure
    arithmetic, which is what makes the PMM architecture-neutral. */
 vaddr_t arch_phys_to_virt(paddr_t pa);

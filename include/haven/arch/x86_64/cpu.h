@@ -52,9 +52,4 @@ void lapic_send_init_sipi(uint32_t apic_id, paddr_t trampoline);
 void tss_init(uint32_t cpu, vaddr_t kstack_top);
 void tss_set_kstack(uint32_t cpu, vaddr_t kstack_top);
 
-/* Page-table internals, exposed for vmm bring-up only. */
-void arch_pt_init_kernel(void);
-void arch_pt_drop_identity_map(void);
-int  arch_pt_map_hhdm(paddr_t pa, size_t len);
-
 #endif /* _HAVEN_ARCH_X86_64_CPU_H */

@@ -58,23 +58,32 @@ SECTIONS
 	   it to keep all pre-long-mode code in one place. */
 	.boot ALIGN(4K) : AT(ADDR(.boot) - KERNEL_VMA)
 	{
+		__boot_start = .;
 		KEEP(*(.multiboot))
 		*(.boot.text)
 		*(.boot.data)
 	} :boot
+	. = ALIGN(4K);
+	__boot_end = .;
 
-	__text_start = .;
+	/* Each pair of bounds symbols is placed INSIDE its section, after
+	   the ALIGN(4K) has taken effect.  Writing `__text_start = .;`
+	   before the section header records the address the previous
+	   section ended at, not the aligned start of this one -- which
+	   makes vmm_protect_kernel() apply .text permissions to the tail
+	   page of the preceding section. */
 	.text ALIGN(4K) : AT(ADDR(.text) - KERNEL_VMA)
 	{
+		__text_start = .;
 		*(.text.unlikely .text.unlikely.*)
 		*(.text .text.* .gnu.linkonce.t.*)
 	} :text
 	. = ALIGN(4K);
 	__text_end = .;
 
-	__rodata_start = .;
 	.rodata ALIGN(4K) : AT(ADDR(.rodata) - KERNEL_VMA)
 	{
+		__rodata_start = .;
 		*(.rodata .rodata.* .gnu.linkonce.r.*)
 
 		/* Driver registration table.  Each driver contributes one
@@ -108,9 +117,9 @@ SECTIONS
 	. = ALIGN(4K);
 	__rodata_end = .;
 
-	__data_start = .;
 	.data ALIGN(4K) : AT(ADDR(.data) - KERNEL_VMA)
 	{
+		__data_start = .;
 		*(.data .data.* .gnu.linkonce.d.*)
 	} :data
 
@@ -126,9 +135,9 @@ SECTIONS
 	__percpu_end = .;
 	__data_end = .;
 
-	__bss_start = .;
 	.bss ALIGN(4K) : AT(ADDR(.bss) - KERNEL_VMA)
 	{
+		__bss_start = .;
 		*(COMMON)
 		*(.bss .bss.*)
 	} :data
