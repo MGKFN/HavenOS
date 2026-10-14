@@ -39,6 +39,19 @@ if [ ! -f "$ISO" ]; then
 	exit 1
 fi
 
+# A partitioned, FAT-formatted disk, so the filesystem and block-layer
+# tests have real media rather than reporting "skipped".  Built by mtools
+# rather than by HavenOS: a FAT driver tested only against volumes it
+# wrote itself will agree with its own mistakes.
+DISK="build/selftest-disk.img"
+DISK_ARGS=""
+if python3 tools/make_test_disk.py "$DISK" 64 >/dev/null 2>&1; then
+	DISK_ARGS="-drive file=$DISK,format=raw,if=ide"
+	echo "  DISK    $DISK (MBR + FAT, written by mtools)"
+else
+	echo "  DISK    none (mtools unavailable); filesystem tests will skip"
+fi
+
 FIRMWARE=""
 if [ "$MODE" = "uefi" ]; then
 	OVMF=${OVMF:-/usr/share/ovmf/OVMF.fd}
@@ -55,7 +68,7 @@ timeout "$TIMEOUT" "$QEMU" \
 	-m 512 -smp "${CPUS:-1}" \
 	-cdrom "$ISO" -boot d \
 	-serial stdio -display none -no-reboot \
-	$FIRMWARE > "$LOG" 2>&1 || true
+	$DISK_ARGS $FIRMWARE > "$LOG" 2>&1 || true
 
 # The kernel idles forever after the tests, so a timeout is expected and
 # is not itself a failure.  What matters is whether the verdict appeared.

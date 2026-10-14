@@ -778,6 +778,53 @@ void sched_init(void)
 	      boot->tid, boot->name);
 }
 
+/*
+ * Join an application processor to the scheduler.
+ *
+ * Nearly the same as sched_init(), but it must not re-initialise the
+ * global lists -- the boot CPU already did, and clearing them here would
+ * discard every thread the BSP has created.  Each CPU gets its own idle
+ * thread, because a CPU with nothing to run still needs a stack to be on.
+ */
+void sched_init_ap(void)
+{
+	struct haven_cpu *cpu = this_cpu();
+
+	char name[THREAD_NAME_MAX];
+	snprintf(name, sizeof(name), "kinit/%u", cpu->cpu_id);
+
+	struct thread *boot = adopt_current_as_thread(name);
+	cpu->current = boot;
+	arch_set_current_thread(boot);
+	arch_set_kernel_stack(boot->kstack_top);
+
+	snprintf(name, sizeof(name), "idle/%u", cpu->cpu_id);
+	struct thread *idle = thread_create(name, idle_thread_main, NULL,
+	                                    SCHED_PRIO_IDLE);
+	if (!idle)
+		panic("sched: cannot create the idle thread for cpu %u",
+		      cpu->cpu_id);
+
+	irqflags_t f = sched_lock();
+	if (idle->state == THREAD_READY) {
+		/* thread_create() places a new thread on the CREATING CPU's
+		   run queue, which for an AP calling this is itself. */
+		struct haven_cpu *home = cpu_by_id(idle->home_cpu);
+		if (home) {
+			list_del_init(&idle->queue_node);
+			if (list_empty(&home->runqueue[idle->priority]))
+				home->runnable &= ~(1u << idle->priority);
+			if (home->nr_runnable)
+				home->nr_runnable--;
+		}
+	}
+	cpu->idle = idle;
+	sched_unlock(f);
+
+	kinfo("sched: cpu %u joined, thread %d '%s' and idle thread %d",
+	      cpu->cpu_id, boot->tid, boot->name, idle->tid);
+}
+
 void sched_get_stats(struct sched_stats *out)
 {
 	if (!out)

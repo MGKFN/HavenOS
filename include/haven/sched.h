@@ -103,6 +103,11 @@ struct thread {
 
 void sched_init(void);
 
+/* Join an application processor to the scheduler: give it an idle thread
+   and an empty run queue, and adopt its current context as a thread.
+   Called from smp_ap_entry(). */
+void sched_init_ap(void);
+
 /* Create a kernel thread.  It starts READY, not running. */
 struct thread *thread_create(const char *name, void (*entry)(void *),
                              void *arg, uint8_t priority);

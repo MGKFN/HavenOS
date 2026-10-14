@@ -49,6 +49,7 @@
 #include <haven/input.h>
 #include <haven/virtio.h>
 #include <haven/fat.h>
+#include <haven/arch/x86_64/acpi.h>
 
 /*
  * Is `flag` present in the kernel command line, as a whole word?
@@ -362,6 +363,20 @@ void haven_kmain(struct boot_info *bi)
 	arch_irq_enable();
 
 	kinfo("kernel: interrupts enabled; the system is now preemptive");
+
+	/* ── Stage 10b: the other processors ────────────────────────────
+	   Provides: the remaining CPUs, each with its own run queue, idle
+	   thread and timer.
+	   Requires: the scheduler, timers, the allocator (per-CPU stacks)
+	   and the page tables (which every CPU shares).  Deliberately
+	   after interrupts are on: an application processor needs a
+	   calibrated delay to wait out the INIT-SIPI timing, and the
+	   bring-up loop polls with time_delay_us(). */
+	acpi_init(bi);
+	if (cmdline_has(bi, "nosmp"))
+		kinfo("smp: disabled by the kernel command line");
+	else
+		arch_smp_start_cpus();
 
 	/* ── Stage 11: system calls ─────────────────────────────────────
 	   Provides: the user/kernel boundary.
