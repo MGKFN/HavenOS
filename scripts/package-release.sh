@@ -47,6 +47,8 @@ DIST="$TOP/dist"
 STAGE="$DIST/$NAME"
 ZIP="$DIST/$NAME.zip"
 
+PYTHON=${PYTHON:-python3}
+
 fail=0
 step()   { echo ""; echo "=== $1"; }
 ok()     { echo "  ok      $1"; }
@@ -110,6 +112,62 @@ else
 fi
 
 ok "staged $(find "$STAGE" -type f | wc -l) files (MANIFEST.txt is added below)"
+
+# ---------------------------------------- the ISO is the one users want
+#
+# An ISO can be present, valid, bootable and still wrong: `make check`
+# builds one whose default GRUB entry is the self-test entry, and a
+# release once shipped exactly that, because every other check here only
+# asked whether an ISO existed.  So this asks what it actually does when
+# someone boots it.
+if [ -f "$STAGE/image/havenos-$VERSION.iso" ]; then
+	step "verifying the packaged ISO boots HavenOS by default"
+
+	iso="$STAGE/image/havenos-$VERSION.iso"
+	if command -v osirrox >/dev/null 2>&1; then
+		isotmp=$(mktemp -d -t havenos-iso.XXXXXX)
+		osirrox -indev "$iso" \
+		    -extract /boot/grub/grub.cfg "$isotmp/grub.cfg" \
+		    >/dev/null 2>&1 || true
+
+		if [ -f "$isotmp/grub.cfg" ]; then
+			dflt=$(sed -n 's/^set default=\(.*\)$/\1/p' \
+			       "$isotmp/grub.cfg")
+			if [ "$dflt" = "0" ]; then
+				ok "default GRUB entry is 0 (normal boot)"
+			else
+				bad "the packaged ISO defaults to GRUB entry '$dflt', not 0 -- it would not boot normally"
+			fi
+
+			entry=$(grep -c '^menuentry' "$isotmp/grub.cfg" || true)
+			[ "$entry" -ge 7 ] \
+			    && ok "$entry boot-menu entries, generated from version.h" \
+			    || bad "only $entry boot-menu entries in the ISO"
+
+			grep -q "HavenOS $VERSION" "$isotmp/grub.cfg" \
+			    && ok "menu titles carry version $VERSION" \
+			    || bad "the ISO menu does not mention version $VERSION"
+		else
+			bad "could not read /boot/grub/grub.cfg out of the ISO"
+		fi
+
+		osirrox -indev "$iso" -extract /boot/havenos.elf \
+		    "$isotmp/havenos.elf" >/dev/null 2>&1 || true
+		if [ -s "$isotmp/havenos.elf" ]; then
+			ok "kernel present at /boot/havenos.elf ($(wc -c \
+			    < "$isotmp/havenos.elf") bytes)"
+			$PYTHON tools/verify_multiboot2.py "$isotmp/havenos.elf" \
+			    >/dev/null 2>&1 \
+			    && ok "its Multiboot2 header is valid" \
+			    || bad "the kernel in the ISO has an invalid Multiboot2 header"
+		else
+			bad "no kernel at /boot/havenos.elf inside the ISO"
+		fi
+		rm -rf "$isotmp"
+	else
+		note "osirrox not installed; ISO contents not inspected"
+	fi
+fi
 
 # ------------------------------------------------- property 1: completeness
 
