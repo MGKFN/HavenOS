@@ -26,7 +26,21 @@
 #define HAVENOS_CODENAME  "Foundation"
 #define HAVENOS_COPYRIGHT "Copyright (c) 2026 KUNIX / Tech Haven Studios - MIT licensed"
 
-/* Set by the build; see the Makefile's VERSION_FLAGS. */
+/* The build stamp comes from a header the Makefile generates, so that a
+   new git revision rebuilds everything that reports one.  A compiler
+   -D would not: its value is invisible to dependency tracking, and the
+   result was one image whose `uname` and whose /etc/os-release disagreed
+   about which commit it was built from.
+
+   The guard keeps this header usable outside the kernel build -- the host
+   test suite compiles against include/ alone and has no build directory,
+   and reports "unknown" rather than failing to compile. */
+#if defined(__has_include)
+#  if __has_include(<haven/buildinfo.h>)
+#    include <haven/buildinfo.h>
+#  endif
+#endif
+
 #ifndef HAVENOS_BUILD_DATE
 #define HAVENOS_BUILD_DATE "unknown"
 #endif
