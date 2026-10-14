@@ -48,6 +48,7 @@
 #include <haven/ata.h>
 #include <haven/input.h>
 #include <haven/virtio.h>
+#include <haven/fat.h>
 
 /*
  * Is `flag` present in the kernel command line, as a whole word?
@@ -98,7 +99,7 @@ static void mount_root_filesystems(void)
 	/* Standard directories.  Created before /dev is mounted over one of
 	   them, so the mount point exists as a directory either way. */
 	static const char *const dirs[] = {
-		"/dev", "/tmp", "/etc", "/bin", "/home", "/var", "/proc",
+		"/dev", "/tmp", "/etc", "/bin", "/home", "/var", "/proc", "/mnt",
 	};
 	for (size_t i = 0; i < ARRAY_SIZE(dirs); i++) {
 		rc = vfs_mkdir(dirs[i], VFS_PERM_DEFAULT_DIR);
@@ -134,6 +135,53 @@ static void mount_root_filesystems(void)
 	                 HAVENOS_BUILD_DATE, HAVENOS_BUILD_REV);
 	if (n > 0)
 		vfs_write_file("/etc/os-release", release, (size_t)n);
+}
+
+/*
+ * Look for a filesystem on every block device and mount what is found.
+ *
+ * HavenDOS's fat16_init() probed VirtIO then ATA for one FAT16 partition
+ * and its boot path branched on whether that succeeded -- a disk with a
+ * different layout, or a second disk, had no representation.  Here each
+ * device is probed and each recognised volume gets a mount point, so the
+ * result is a description of the machine rather than a yes-or-no answer.
+ */
+static void mount_block_filesystems(void)
+{
+	unsigned mounted = 0;
+
+	for (unsigned i = 0; i < block_count(); i++) {
+		struct block_device *dev = block_by_index(i);
+		if (!dev)
+			continue;
+
+		enum fat_variant v = fat_probe(dev);
+		if (v == FAT_UNKNOWN)
+			continue;
+
+		char path[64];
+		snprintf(path, sizeof(path), "/mnt/%s", dev->name);
+
+		int rc = vfs_mkdir(path, VFS_PERM_DEFAULT_DIR);
+		if (rc != 0 && rc != -HAVEN_EEXIST) {
+			kwarn("vfs: cannot create the mount point %s: %s",
+			      path, haven_strerror(rc));
+			continue;
+		}
+
+		rc = fat_mount(dev, path, false);
+		if (rc != 0) {
+			kwarn("fat: %s looks like %s but would not mount: %s",
+			      dev->name, fat_variant_name(v),
+			      haven_strerror(rc));
+			continue;
+		}
+		mounted++;
+	}
+
+	if (mounted == 0 && block_count() > 0)
+		kinfo("vfs: no recognised filesystem on any of the %u block "
+		      "devices", block_count());
 }
 
 static void print_banner(const struct boot_info *bi)
@@ -357,6 +405,12 @@ void haven_kmain(struct boot_info *bi)
 	pci_init();
 	ata_init();
 	virtio_blk_init();
+
+	/* Any FAT volume found on a block device is mounted under /mnt.
+	   HavenDOS probed for exactly one FAT16 partition and made its whole
+	   boot decision on whether it found one; mounting whatever is there
+	   keeps the capability without the single-volume assumption. */
+	mount_block_filesystems();
 
 	device_dump();
 	block_dump();

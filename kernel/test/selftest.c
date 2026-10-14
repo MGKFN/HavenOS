@@ -31,7 +31,13 @@
 #include <haven/printf.h>
 #include <haven/string.h>
 #include <haven/irq.h>
+#include <haven/printf.h>
 #include <haven/selftest.h>
+#include <haven/vfs.h>
+#include <haven/block.h>
+#include <haven/fat.h>
+#include <haven/errno.h>
+#include <haven/device.h>
 
 static unsigned checks_run;
 static unsigned checks_failed;
@@ -570,6 +576,251 @@ static void test_kernel_protection(void)
 	tests_run++;
 }
 
+/* ── Filesystems ─────────────────────────────────────────────────────── */
+
+static void test_ramfs(void)
+{
+	kinfo("selftest: in-memory filesystem");
+
+	const char *msg = "HavenOS selftest wrote this\n";
+	ssize_t_k n = vfs_write_file("/tmp/selftest.txt", msg, strlen(msg));
+	check_eq("writing a file reports every byte written",
+	         (uint64_t)n, strlen(msg));
+
+	char buf[128];
+	memset(buf, 0, sizeof(buf));
+	n = vfs_read_file("/tmp/selftest.txt", buf, sizeof(buf));
+	check_eq("reading it back returns the same length",
+	         (uint64_t)n, strlen(msg));
+	check("and the same bytes", strcmp(buf, msg) == 0);
+
+	/* A file larger than HavenDOS's fixed 2048-byte per-file limit,
+	   which that design truncated while reporting success. */
+	const size_t big = 32 * 1024;
+	char *src = kmalloc(big);
+	char *dst = kmalloc(big);
+	if (src && dst) {
+		for (size_t i = 0; i < big; i++)
+			src[i] = (char)(i * 13 + 5);
+
+		n = vfs_write_file("/tmp/big.bin", src, big);
+		check_eq("a 32 KiB write reports all 32 KiB", (uint64_t)n, big);
+
+		memset(dst, 0, big);
+		n = vfs_read_file("/tmp/big.bin", dst, big);
+		check_eq("reading it back returns 32 KiB", (uint64_t)n, big);
+		check("every byte survived", memcmp(src, dst, big) == 0);
+
+		vfs_unlink("/tmp/big.bin");
+	}
+	kfree(src);
+	kfree(dst);
+
+	/* Nested directories, which HavenDOS's slash-in-the-name scheme
+	   could not represent beyond one level. */
+	check_eq("mkdir /tmp/a", vfs_mkdir("/tmp/a", 0755), 0);
+	check_eq("mkdir /tmp/a/b", vfs_mkdir("/tmp/a/b", 0755), 0);
+	check_eq("mkdir /tmp/a/b/c", vfs_mkdir("/tmp/a/b/c", 0755), 0);
+	check("a three-level directory exists", vfs_is_dir("/tmp/a/b/c"));
+
+	n = vfs_write_file("/tmp/a/b/c/deep.txt", "deep", 4);
+	check_eq("a file three levels down can be written", (uint64_t)n, 4);
+	check("and found", vfs_exists("/tmp/a/b/c/deep.txt"));
+
+	/* /dev must be reachable and its devices must behave. */
+	check("/dev is a directory", vfs_is_dir("/dev"));
+	check("/dev/null exists", vfs_exists("/dev/null"));
+	check("/dev/zero exists", vfs_exists("/dev/zero"));
+
+	struct vfs_file *f = NULL;
+	if (vfs_open("/dev/zero", O_RDONLY, 0, &f) == 0) {
+		uint8_t probe[64];
+		memset(probe, 0xFF, sizeof(probe));
+		ssize_t_k got = vfs_read(f, probe, sizeof(probe));
+		check_eq("/dev/zero returns the requested length",
+		         (uint64_t)got, sizeof(probe));
+
+		bool zeros = true;
+		for (size_t i = 0; i < sizeof(probe); i++) {
+			if (probe[i] != 0) {
+				zeros = false;
+				break;
+			}
+		}
+		check("and every byte is zero", zeros);
+		vfs_close(f);
+	}
+
+	if (vfs_open("/dev/random", O_RDONLY, 0, &f) == 0) {
+		uint8_t a[32], b[32];
+		vfs_read(f, a, sizeof(a));
+		vfs_read(f, b, sizeof(b));
+		/* Two reads returning identical bytes would mean the
+		   generator is not advancing -- a 1-in-2^256 coincidence
+		   otherwise. */
+		check("/dev/random returns different bytes on consecutive "
+		      "reads", memcmp(a, b, sizeof(a)) != 0);
+		vfs_close(f);
+	}
+
+	vfs_unlink("/tmp/selftest.txt");
+	tests_run++;
+}
+
+static void test_fat(void)
+{
+	kinfo("selftest: FAT on real media");
+
+	/* Find a mounted FAT volume.  There may be none -- a machine with
+	   no disk is a legitimate configuration, and skipping is the honest
+	   outcome rather than a failure. */
+	char mount[64];
+	bool found = false;
+
+	for (unsigned i = 0; i < block_count(); i++) {
+		struct block_device *dev = block_by_index(i);
+		if (!dev)
+			continue;
+		snprintf(mount, sizeof(mount), "/mnt/%s", dev->name);
+		if (vfs_is_dir(mount) && fat_probe(dev) != FAT_UNKNOWN) {
+			found = true;
+			break;
+		}
+	}
+
+	if (!found) {
+		kwarn("selftest:   skipped (no FAT volume is mounted)");
+		tests_skipped++;
+		return;
+	}
+
+	kinfo("selftest:   using %s", mount);
+
+	/* Enumerate it.  A readdir that returns nothing on a volume with
+	   files means the directory walk is wrong -- which is exactly the
+	   failure HavenDOS's 8.3 path handling produced. */
+	unsigned entries = 0;
+	for (uint32_t i = 0; i < 64; i++) {
+		struct vfs_dirent de;
+		if (vfs_readdir_path(mount, i, &de) != 0)
+			break;
+		kinfo("selftest:   %-14s %8llu  %s", de.name,
+		      (unsigned long long)de.size,
+		      de.type == VFS_NODE_DIR ? "dir" : "file");
+		entries++;
+	}
+	check("the volume's root directory enumerates", entries > 0);
+
+	/* Write a file, read it back, and delete it -- the full cycle
+	   against a filesystem another system can also read. */
+	char path[128];
+	snprintf(path, sizeof(path), "%s/SELFTEST.TXT", mount);
+
+	const char *body = "HavenOS wrote this to a FAT volume.\n";
+	ssize_t_k n = vfs_write_file(path, body, strlen(body));
+	check_eq("a file can be written to the FAT volume",
+	         (uint64_t)n, strlen(body));
+
+	char buf[128];
+	memset(buf, 0, sizeof(buf));
+	n = vfs_read_file(path, buf, sizeof(buf));
+	check_eq("reading it back returns the same length",
+	         (uint64_t)n, strlen(body));
+	check("and the same bytes", strcmp(buf, body) == 0);
+
+	struct vfs_stat st;
+	check_eq("stat reports the size", vfs_stat_path(path, &st) == 0
+	         ? st.size : 0, strlen(body));
+
+	/* A file spanning several clusters, which exercises chain
+	   allocation rather than just the first cluster. */
+	char mpath[128];
+	snprintf(mpath, sizeof(mpath), "%s/MULTI.BIN", mount);
+
+	const size_t multi = 24 * 1024;
+	uint8_t *src = kmalloc(multi);
+	uint8_t *dst = kmalloc(multi);
+	if (src && dst) {
+		for (size_t i = 0; i < multi; i++)
+			src[i] = (uint8_t)(i * 7 + 3);
+
+		n = vfs_write_file(mpath, src, multi);
+		check_eq("a 24 KiB file spanning many clusters is written "
+		         "in full", (uint64_t)n, multi);
+
+		memset(dst, 0, multi);
+		n = vfs_read_file(mpath, dst, multi);
+		check_eq("and read back in full", (uint64_t)n, multi);
+		check("with every byte intact, so the cluster chain is "
+		      "correct", memcmp(src, dst, multi) == 0);
+
+		check_eq("it can be deleted", vfs_unlink(mpath), 0);
+		check("and is gone", !vfs_exists(mpath));
+	}
+	kfree(src);
+	kfree(dst);
+
+	/* A name that does not fit 8.3 must be REFUSED, not mangled.
+	   HavenDOS mangled, which is how "boot/grub.cfg" became the
+	   root-directory file "BOOT/GRU". */
+	char longpath[192];
+	snprintf(longpath, sizeof(longpath),
+	         "%s/this-name-is-much-too-long.txt", mount);
+	n = vfs_write_file(longpath, "x", 1);
+	check("a name that does not fit 8.3 is refused rather than mangled",
+	      n < 0);
+
+	check_eq("the test file can be deleted", vfs_unlink(path), 0);
+	check("and is gone", !vfs_exists(path));
+	check_eq("the volume syncs", vfs_sync(), 0);
+
+	tests_run++;
+}
+
+static void test_block_layer(void)
+{
+	kinfo("selftest: block device layer");
+
+	if (block_count() == 0) {
+		kwarn("selftest:   skipped (no block devices)");
+		tests_skipped++;
+		return;
+	}
+
+	struct block_device *dev = block_by_index(0);
+	check("the first block device is present", dev != NULL);
+	if (!dev) {
+		tests_run++;
+		return;
+	}
+
+	uint8_t *buf = kmalloc(dev->sector_size * 2);
+	if (!buf) {
+		tests_run++;
+		return;
+	}
+
+	ssize_t_k got = block_read(dev, 0, buf, 1);
+	check_eq("sector 0 reads", (uint64_t)got, 1);
+
+	/* A read past the end must be refused, not silently wrapped to the
+	   start of the medium -- which is what some controllers do. */
+	got = block_read(dev, dev->sector_count, buf, 1);
+	check("a read past the end of the device is refused", got < 0);
+	got = block_read(dev, dev->sector_count - 1, buf, 2);
+	check("a read straddling the end is refused", got < 0);
+
+	/* Byte-granular access must handle a range that starts and ends
+	   mid-sector, which needs a bounce buffer. */
+	uint8_t probe[100];
+	got = block_read_bytes(dev, 300, probe, sizeof(probe));
+	check_eq("a byte read straddling a sector boundary works",
+	         (uint64_t)got, sizeof(probe));
+
+	kfree(buf);
+	tests_run++;
+}
+
 /* ── Runner ──────────────────────────────────────────────────────────── */
 
 bool selftest_run_all(void)
@@ -594,6 +845,9 @@ bool selftest_run_all(void)
 	test_preemption();
 	test_sleep_accuracy();
 	test_priority();
+	test_ramfs();
+	test_block_layer();
+	test_fat();
 
 	kinfo("================================================================");
 	if (checks_failed == 0) {

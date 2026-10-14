@@ -37,6 +37,7 @@ static const struct err_name names[] = {
 	{ HAVEN_ESPIPE,       "ESPIPE (illegal seek)" },
 	{ HAVEN_EROFS,        "EROFS (read-only file system)" },
 	{ HAVEN_EMLINK,       "EMLINK (too many links)" },
+	{ HAVEN_EFBIG,        "EFBIG (file too large for the filesystem)" },
 	{ HAVEN_ERANGE,       "ERANGE (result out of range)" },
 	{ HAVEN_ENAMETOOLONG, "ENAMETOOLONG (file name too long)" },
 	{ HAVEN_ENOSYS,       "ENOSYS (function not implemented)" },

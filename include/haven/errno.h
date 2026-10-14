@@ -38,6 +38,7 @@
 #define HAVEN_ESPIPE    29   /* illegal seek */
 #define HAVEN_EROFS     30   /* read-only file system */
 #define HAVEN_EMLINK    31   /* too many links */
+#define HAVEN_EFBIG     27   /* file too large for the filesystem */
 #define HAVEN_ERANGE    34   /* result out of range */
 #define HAVEN_ENAMETOOLONG 36 /* file name too long */
 #define HAVEN_ENOSYS    38   /* function not implemented */
