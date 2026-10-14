@@ -1,0 +1,49 @@
+# HavenOS GRUB configuration (template).
+#
+# Generated into build/isodir/boot/grub/grub.cfg by tools/make_version.py,
+# which substitutes @VERSION@ and @CODENAME@ from include/haven/version.h.
+# HavenDOS added exactly this generation step in v0.7.18 after its GRUB
+# menu titles drifted out of step with the running kernel; HavenOS has
+# never had a hand-written version string in this file.
+
+set timeout=5
+set default=@DEFAULT_ENTRY@
+
+insmod all_video
+insmod gfxterm
+terminal_output console
+
+menuentry "HavenOS @VERSION@ (@CODENAME@)" {
+	echo "Loading HavenOS @VERSION@ ..."
+	multiboot2 /boot/havenos.elf
+	boot
+}
+
+menuentry "HavenOS @VERSION@ - verbose boot log" {
+	echo "Loading HavenOS @VERSION@ (loglevel=debug) ..."
+	multiboot2 /boot/havenos.elf loglevel=debug
+	boot
+}
+
+menuentry "HavenOS @VERSION@ - single CPU (no SMP)" {
+	multiboot2 /boot/havenos.elf nosmp
+	boot
+}
+
+menuentry "HavenOS @VERSION@ - run kernel self-tests and report" {
+	multiboot2 /boot/havenos.elf selftest loglevel=debug
+	boot
+}
+
+menuentry "HavenOS @VERSION@ - serial console only" {
+	multiboot2 /boot/havenos.elf console=serial
+	boot
+}
+
+menuentry "Reboot" {
+	reboot
+}
+
+menuentry "Halt" {
+	halt
+}

@@ -1,0 +1,21 @@
+# Build output
+build/
+dist/
+*.o
+*.d
+*.elf
+*.iso
+*.map
+*.bin
+
+# Host test binaries
+tests/host/test_*
+!tests/host/test_*.c
+tests/host/*.gcda
+tests/host/*.gcno
+
+# Editor and OS noise
+*.swp
+*~
+.DS_Store
+compile_commands.json
