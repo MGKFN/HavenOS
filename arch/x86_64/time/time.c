@@ -166,6 +166,17 @@ uint64_t arch_tsc_hz(void)
 	return tsc_hz;
 }
 
+/* The portable view of the same facts, for kernel/time/timer.c. */
+uint64_t arch_clock_hz(void)
+{
+	return tsc_hz;
+}
+
+bool arch_clock_reliable(void)
+{
+	return tsc_usable;
+}
+
 bool arch_tsc_usable(void)
 {
 	return tsc_usable;

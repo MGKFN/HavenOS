@@ -99,6 +99,16 @@ SECTIONS
 		KEEP(*(.haven.drivers))
 		__haven_drivers_end = .;
 
+		/* The user-copy exception table: for each instruction in a
+		   copy_from_user()/copy_to_user() loop that can fault, the
+		   address to resume at instead.  This is what lets a bad
+		   user pointer become -EFAULT rather than a dead kernel.
+		   HavenDOS had no user mode and so no equivalent. */
+		. = ALIGN(8);
+		__uaccess_fixup_start = .;
+		KEEP(*(.uaccess_fixup))
+		__uaccess_fixup_end = .;
+
 		/* In-kernel self tests, registered the same way. */
 		. = ALIGN(8);
 		__haven_tests_start = .;

@@ -45,6 +45,13 @@ struct haven_cpu {
 	/* Ring-0 stack this CPU's interrupt and syscall entry paths use. */
 	vaddr_t  kernel_stack_top;
 
+	/* Where the SYSCALL entry path parks the user stack pointer.  It
+	   has to live somewhere the kernel can reach with one instruction
+	   and before it owns a stack, which means per-CPU memory and not
+	   a register.  arch/x86_64/cpu/entry.S reads this at a hard-coded
+	   offset; percpu.c asserts that the offset is still right. */
+	vaddr_t  user_rsp;
+
 	/* Run queues, one list per priority band.  Per-CPU so that the
 	   common case — picking the next thread — touches no shared state
 	   and needs no cross-CPU lock. */
@@ -58,6 +65,13 @@ struct haven_cpu {
 	   context that cannot survive a context switch. */
 	uint32_t preempt_count;
 	uint32_t irq_nesting;
+
+	/* Set by the timer tick when the running thread's slice is spent,
+	   or when a higher-priority thread becomes runnable.  Acted on at
+	   the next point where switching is safe -- which, crucially,
+	   includes the interrupt return path; see the comment on rule 1 in
+	   kernel/sched/sched.c. */
+	bool     need_resched;
 
 	/* Statistics, for `cpuinfo`. */
 	uint64_t ticks;
@@ -90,6 +104,13 @@ int  smp_start_secondary(void);
 
 /* Entry point for a freshly started application processor. */
 void smp_ap_entry(uint32_t cpu_id) HAVEN_NORETURN;
+
+/* IPI purposes, named portably.  The architecture maps each to a vector;
+   the generic layer never names a vector number. */
+#define IPI_VECTOR_RESCHEDULE 50
+#define IPI_VECTOR_TLB_FLUSH  51
+#define IPI_VECTOR_HALT       52
+#define IPI_VECTOR_CALL       53
 
 /* Preemption control.  These nest. */
 void preempt_disable(void);

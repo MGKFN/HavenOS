@@ -31,6 +31,11 @@
 
 void     arch_early_init(void);        /* before any allocation */
 void     arch_init(void);              /* after MM is up */
+
+/* Install whatever descriptor/vector tables the architecture needs, in
+   whatever order it requires.  Called once memory management is up and
+   before irq_init(). */
+void     arch_cpu_init_tables(void);
 void     arch_halt(void) HAVEN_NORETURN;
 void     arch_reboot(void) HAVEN_NORETURN;
 void     arch_idle(void);              /* wait for the next interrupt */
@@ -156,8 +161,19 @@ void arch_irq_eoi(uint32_t irq);
 /* ───────────────────────── Timekeeping ───────────────────────── */
 
 void     arch_timer_init(uint32_t hz);     /* periodic scheduler tick */
+
+/* The architecture's timer interrupt handler calls timer_tick() once per
+   tick on the CPU that took it; see <haven/time.h> for its declaration. */
 nstime_t arch_time_ns(void);               /* monotonic since boot */
 void     arch_delay_us(uint64_t us);       /* calibrated busy-wait */
+
+/* Facts about the monotonic clock, in portable terms.  kernel/time needs
+   to report them and must not know whether the clock is a TSC, a generic
+   timer or anything else -- so it asks these rather than arch_tsc_hz(),
+   which exists only inside arch/x86_64. */
+uint64_t arch_clock_hz(void);              /* tick rate of the clock source */
+bool     arch_clock_reliable(void);        /* false when it can drift with
+                                              CPU frequency or power state */
 
 /* ──────────────────────────── SMP ─────────────────────────────── */
 

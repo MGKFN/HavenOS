@@ -30,7 +30,21 @@
 #include <haven/string.h>
 #include <haven/arch/x86_64/io.h>
 #include <haven/arch/x86_64/cpu.h>
+#include <haven/arch/x86_64/gdt.h>
 #include <haven/arch/x86_64/percpu.h>
+#include <haven/arch/x86_64/percpu_asm.h>
+
+/* arch/x86_64/cpu/entry.S reaches these three fields with hard-coded
+   byte offsets, because the C struct layout is not available to the
+   assembler.  If a field is ever inserted above them, the syscall entry
+   path would load a garbage kernel stack pointer -- so the offsets are
+   checked here rather than discovered by a crash. */
+HAVEN_STATIC_ASSERT(offsetof(struct haven_cpu, kernel_stack_top) ==
+                    PERCPU_OFF_KSTACK,
+                    "PERCPU_OFF_KSTACK in percpu_asm.h is stale");
+HAVEN_STATIC_ASSERT(offsetof(struct haven_cpu, user_rsp) ==
+                    PERCPU_OFF_USER_RSP,
+                    "PERCPU_OFF_USER_RSP in percpu_asm.h is stale");
 
 #define MSR_GS_BASE        0xC0000101
 #define MSR_KERNEL_GS_BASE 0xC0000102
@@ -107,6 +121,13 @@ struct percpu_anchor {
 	struct haven_cpu *self;
 	struct haven_cpu *block;
 };
+
+HAVEN_STATIC_ASSERT(offsetof(struct percpu_anchor, self) ==
+                    PERCPU_ANCHOR_SELF,
+                    "PERCPU_ANCHOR_SELF in percpu_asm.h is stale");
+HAVEN_STATIC_ASSERT(offsetof(struct percpu_anchor, block) ==
+                    PERCPU_ANCHOR_BLOCK,
+                    "PERCPU_ANCHOR_BLOCK in percpu_asm.h is stale");
 
 static struct percpu_anchor anchors[HAVEN_MAX_CPUS];
 

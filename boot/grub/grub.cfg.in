@@ -7,7 +7,7 @@
 # never had a hand-written version string in this file.
 
 set timeout=5
-set default=0
+set default=@DEFAULT_ENTRY@
 
 insmod all_video
 insmod gfxterm

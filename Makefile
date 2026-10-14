@@ -189,6 +189,20 @@ run-uefi: $(ISO)
 run-smp: $(ISO)
 	$(MAKE) run CPUS=4
 
+# Boot straight into the self-test menu entry and report its verdict.
+# Entry 3 in boot/grub/grub.cfg.in is "run kernel self-tests".
+.PHONY: run-selftest selftest
+run-selftest:
+	$(Q)rm -f $(ISO)
+	$(Q)GRUB_DEFAULT=3 $(MAKE) --no-print-directory iso
+	$(QEMU) $(QEMU_COMMON) -display none
+
+# Build the self-test image, boot it, and fail if any check failed.
+# This is the target CI runs: it exercises the real boot path on a real
+# CPU, which no host test can do.
+selftest: $(KERNEL)
+	$(Q)./scripts/run-selftest.sh
+
 # ------------------------------------------------------------------ test
 
 .PHONY: test
@@ -198,6 +212,7 @@ test:
 .PHONY: check
 check: test portability
 	$(Q)$(MAKE) --no-print-directory all
+	$(Q)./scripts/run-selftest.sh
 
 .PHONY: portability
 portability:

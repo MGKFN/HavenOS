@@ -62,6 +62,12 @@ def main(argv):
                               .strftime("%Y-%m-%d"),
         "BUILD_REV": git_rev(),
         "ARCH": os.environ.get("ARCH", "x86_64"),
+        # Which GRUB menu entry boots by default.  Overridable so that
+        # `make run-selftest` can build an image that boots straight into
+        # the self-test entry, rather than needing someone to pick it from
+        # a menu -- which is the difference between a test that runs in CI
+        # and one that runs when somebody remembers.
+        "DEFAULT_ENTRY": os.environ.get("GRUB_DEFAULT", "0"),
     }
 
     text = open(template, encoding="utf-8").read()

@@ -30,6 +30,40 @@
 #include <haven/smp.h>
 #include <haven/string.h>
 #include <haven/version.h>
+#include <haven/irq.h>
+#include <haven/time.h>
+#include <haven/sched.h>
+#include <haven/syscall.h>
+#include <haven/selftest.h>
+
+/*
+ * Is `flag` present in the kernel command line, as a whole word?
+ *
+ * Whole-word matching matters: a substring test would see "nosmp" inside
+ * "nosmpfoo", and more importantly would see "selftest" inside a path.
+ * HavenDOS's apply_cmdline() used a token comparison for the same reason.
+ */
+static bool cmdline_has(const struct boot_info *bi, const char *flag)
+{
+	size_t flen = strlen(flag);
+	const char *p = bi->cmdline;
+
+	while (*p) {
+		while (*p == ' ')
+			p++;
+		if (!*p)
+			break;
+
+		const char *start = p;
+		while (*p && *p != ' ')
+			p++;
+
+		size_t tlen = (size_t)(p - start);
+		if (tlen == flen && strncmp(start, flag, flen) == 0)
+			return true;
+	}
+	return false;
+}
 
 static void print_banner(const struct boot_info *bi)
 {
@@ -185,13 +219,64 @@ void haven_kmain(struct boot_info *bi)
 	   kernel's own pages become read-only. */
 	vmm_protect_kernel();
 
+	/* ── Stage 8: interrupts ────────────────────────────────────────
+	   Provides: CPU exception handling, the IRQ registry, the interrupt
+	   controllers.
+	   Requires: the object allocator, for shared-line handler records,
+	   and the MMIO window, for mapping the Local APIC. */
+	arch_cpu_init_tables();
+	irq_init();
+
+	/* ── Stage 9: timekeeping ───────────────────────────────────────
+	   Provides: the tick, one-shot timers, blocking sleep.
+	   Requires: the IRQ layer, to take the timer interrupt. */
+	time_init();
+
+	/* ── Stage 10: the scheduler ────────────────────────────────────
+	   Provides: threads, preemption, blocking.
+	   Requires: the allocator (thread structures and kernel stacks)
+	   and per-CPU state (run queues).  The timer is started AFTER
+	   sched_init(), because a tick that arrives before there is a
+	   current thread has nothing to account time to. */
+	sched_init();
+	arch_timer_init(HZ);
+	arch_irq_enable();
+
+	kinfo("kernel: interrupts enabled; the system is now preemptive");
+
+	/* ── Stage 11: system calls ─────────────────────────────────────
+	   Provides: the user/kernel boundary.
+	   Requires: the GDT's user segments and a per-CPU kernel stack in
+	   the TSS, both established in stage 8, and the scheduler, since a
+	   syscall can block. */
+	syscall_init();
+
+	/* ── Stage 12: report, and verify on request ───────────────────── */
 	pmm_dump();
 	kmalloc_dump();
+	sched_dump();
+
+	if (cmdline_has(bi, "selftest")) {
+		bool ok = selftest_run_all();
+		if (!ok)
+			kerr("kernel: self-tests FAILED; see the log above");
+	} else {
+		kinfo("kernel: pass `selftest` on the kernel command line "
+		      "(or pick it from the GRUB menu) to run the in-kernel "
+		      "test suite");
+	}
 
 	kinfo(" ");
-	kinfo("kernel: reached the end of the implemented boot sequence");
-	kinfo("kernel: idling");
+	kinfo("kernel: boot complete; entering the idle loop");
+	kinfo("kernel: %u CPU online, %llu MiB RAM, scheduler running",
+	      smp_online_count(),
+	      (unsigned long long)(bi->ram_total / (1024 * 1024)));
 
-	for (;;)
+	/* The boot thread has nothing left to do.  Rather than spinning, it
+	   becomes a low-priority thread that simply blocks, so the idle
+	   thread takes over and the CPU actually halts between interrupts. */
+	for (;;) {
+		sched_preempt_if_needed();
 		arch_idle();
+	}
 }

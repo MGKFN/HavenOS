@@ -214,6 +214,8 @@ bool arch_cpu_has_1g_pages(void)  { return features.gib_pages; }
 bool arch_cpu_has_apic(void)      { return features.apic; }
 bool arch_cpu_has_x2apic(void)    { return features.x2apic; }
 bool arch_cpu_has_invariant_tsc(void) { return features.invariant_tsc; }
+bool arch_cpu_has_smap(void)      { return features.smap; }
+bool arch_cpu_has_smep(void)      { return features.smep; }
 bool arch_cpu_has_tsc_deadline(void)  { return features.tsc_deadline; }
 
 const char *arch_cpu_vendor(void) { return vendor_str; }
