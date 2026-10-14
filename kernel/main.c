@@ -50,6 +50,7 @@
 #include <haven/virtio.h>
 #include <haven/fat.h>
 #include <haven/arch/x86_64/acpi.h>
+#include <haven/shell.h>
 
 /*
  * Is `flag` present in the kernel command line, as a whole word?
@@ -445,6 +446,12 @@ void haven_kmain(struct boot_info *bi)
 		      "(or pick it from the GRUB menu) to run the in-kernel "
 		      "test suite");
 	}
+
+	/* ── Stage 15: the shell ────────────────────────────────────────
+	   Provides: a way to look at and exercise everything above.
+	   Requires: the scheduler (it is a thread), the VFS (its commands
+	   go through it) and an input source. */
+	shell_start();
 
 	kinfo(" ");
 	kinfo("kernel: boot complete; entering the idle loop");

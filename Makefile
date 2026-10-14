@@ -100,6 +100,7 @@ LINKER_SCRIPT := arch/$(ARCH)/boot/linker.ld
 # architecture directory.  Nothing here names a file individually.
 SRC_DIRS := kernel kernel/mm kernel/sched kernel/sync kernel/irq kernel/time \
             kernel/proc kernel/syscall kernel/device kernel/test \
+            kernel/shell \
             lib fs fs/fat \
             drivers/char drivers/video drivers/bus drivers/block drivers/input
 

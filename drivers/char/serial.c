@@ -37,7 +37,25 @@
 
 #define LCR_8N1          0x03
 #define LCR_DLAB         0x80
-#define FCR_ENABLE_CLEAR 0xC7   /* enable FIFOs, clear both, 14-byte trigger */
+/*
+ * FIFO control: enable the FIFOs, clear the TRANSMIT one, and set a
+ * 14-byte receive trigger.  Bit 1 -- clear the RECEIVE FIFO -- is
+ * deliberately NOT set, so that input which arrived before the driver
+ * was ready is kept rather than discarded.  Stale line noise is
+ * harmless; a lost keystroke is not.
+ *
+ * This does not fully avoid losing such a byte, and it is worth
+ * recording why.  Driving the shell by piping a script into
+ * `qemu -serial stdio` loses the leading character of the first command,
+ * and it is not this register's clear bits that do it: turning the FIFO
+ * ON resets the receiver, discarding whatever single byte was sitting in
+ * the non-FIFO holding register.  Real 16550 hardware behaves the same
+ * way.  Avoiding it entirely would mean never enabling the FIFO, which
+ * costs throughput and risks overrun at 115200 baud -- a bad trade for a
+ * byte that can only be lost in the window before the kernel has a
+ * console at all.  Interactive use never sees it.
+ */
+#define FCR_ENABLE_CLEAR 0xC5
 #define MCR_DTR_RTS_OUT2 0x0B
 #define MCR_LOOPBACK     0x10
 #define LSR_THR_EMPTY    0x20
@@ -67,9 +85,26 @@ static bool uart_probe(void)
 
 static bool uart_loopback_test(void)
 {
-	/* Put the UART in loopback and confirm a byte makes the round trip.
-	   This catches the case where the ports decode but nothing is
-	   wired behind them. */
+	/*
+	 * Put the UART in loopback and confirm a byte makes the round trip.
+	 * This catches the case where the ports decode but nothing is wired
+	 * behind them.
+	 *
+	 * If a byte is ALREADY waiting, skip the test and pass.  Received
+	 * data is itself proof the UART works, and the test would otherwise
+	 * consume that byte: the FIFO is first-in-first-out, so the read
+	 * below would return the real input rather than the 0xAE we wrote,
+	 * the test would fail, and the serial console would be declined on
+	 * a machine that was actively being typed at.
+	 *
+	 * This showed up the first time the shell was driven by piping a
+	 * script into `qemu -serial stdio`: the leading 'u' of the first
+	 * `uname` vanished.  A dropped keystroke is minor, but a probe that
+	 * destroys the input it is probing for is wrong in principle.
+	 */
+	if (inb(COM1_BASE + UART_LSR) & LSR_DATA_READY)
+		return true;
+
 	outb(COM1_BASE + UART_MCR, MCR_LOOPBACK | MCR_DTR_RTS_OUT2);
 	outb(COM1_BASE + UART_DATA, 0xAE);
 
