@@ -43,6 +43,7 @@
 #include <haven/arch/x86_64/idt.h>
 #include <haven/arch/x86_64/lapic.h>
 #include <haven/arch/x86_64/acpi.h>
+#include <haven/boot.h>
 #include <haven/arch/x86_64/paging.h>
 #include <haven/arch/x86_64/percpu.h>
 
@@ -136,7 +137,12 @@ void smp_ap_entry(uint32_t cpu_id)
 
 int smp_start_secondary(void)
 {
-	const struct acpi_info *acpi = acpi_get_info();
+	/* Finding the processor list is this architecture's business, not
+	   the generic kernel's: the MADT is an x86 firmware table and
+	   kernel/main.c must not know it exists.
+	   scripts/check-portability.sh caught an earlier version that had
+	   kernel/main.c calling acpi_init() directly. */
+	const struct acpi_info *acpi = acpi_init(&haven_boot_info);
 
 	if (!lapic_available()) {
 		kwarn("smp: no local APIC; running on the boot CPU only");

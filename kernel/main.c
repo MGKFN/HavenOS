@@ -49,7 +49,6 @@
 #include <haven/input.h>
 #include <haven/virtio.h>
 #include <haven/fat.h>
-#include <haven/arch/x86_64/acpi.h>
 #include <haven/shell.h>
 
 /*
