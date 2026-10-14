@@ -251,7 +251,18 @@ portability:
 # --------------------------------------------------------------- release
 
 .PHONY: release
-release: check docs iso
+# `check` runs the in-kernel self-tests, and doing that means building an
+# ISO whose default GRUB entry is the self-test entry.  `iso` as a plain
+# prerequisite then found that file already up to date and skipped
+# regenerating it, so the release shipped an image that boots straight
+# into the test suite instead of into HavenOS.  It passed every check in
+# package-release.sh, because the ISO was present and valid -- just not
+# the one a user wants.
+#
+# So the ISO is rebuilt in the recipe, after check, from a clean slate.
+release: check docs
+	$(Q)rm -f $(ISO)
+	$(Q)$(MAKE) --no-print-directory iso
 	$(Q)./scripts/package-release.sh $(VERSION)
 
 .PHONY: docs

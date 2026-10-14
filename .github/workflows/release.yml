@@ -1,0 +1,105 @@
+# SPDX-License-Identifier: MIT
+#
+# Build a HavenOS release and publish it, with the ISO attached.
+#
+# DESIGN NOTE
+# HavenDOS's published source archive was made by hand, once, and its own
+# README had to warn that the archive no longer matched the released ISO.
+# An artefact built on somebody's workstation and uploaded by hand drifts
+# from the tree the moment the tree moves.
+#
+# So the release is built here, from a clean checkout, by the same
+# `make release` that verifies its own output -- including extracting the
+# ZIP and building it again.  The ISO attached to a GitHub release is
+# therefore the ISO this commit produces, and nothing else.
+#
+# Uses the runner's built-in GITHUB_TOKEN (contents: write) rather than a
+# personal token or a third-party action.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to create or update (e.g. v0.1.0)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # `make` stamps the build with the git revision
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential binutils python3 zip \
+            grub-pc-bin grub-efi-amd64-bin xorriso mtools \
+            qemu-system-x86 ovmf
+
+      - name: Read the version from the single source of truth
+        id: ver
+        run: |
+          V=$(sed -n 's/^#define HAVENOS_VERSION  *"\([^"]*\)".*/\1/p' \
+              include/haven/version.h)
+          C=$(sed -n 's/^#define HAVENOS_CODENAME  *"\([^"]*\)".*/\1/p' \
+              include/haven/version.h)
+          TAG="${{ github.event.inputs.tag }}"
+          [ -n "$TAG" ] || TAG="${GITHUB_REF_NAME}"
+          case "$TAG" in v*) ;; *) TAG="v$V" ;; esac
+          echo "version=$V"  >> "$GITHUB_OUTPUT"
+          echo "codename=$C" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"    >> "$GITHUB_OUTPUT"
+          echo "Building HavenOS $V \"$C\" as $TAG"
+
+      # `make release` is `make check` (host tests, portability check, a
+      # full build and the in-kernel self-tests under QEMU) plus the
+      # packaging step, which verifies the archive and builds it again
+      # from the extracted ZIP.  A red job here means the release is not
+      # fit to publish, which is the point.
+      - name: Build and verify the release package
+        run: make release
+
+      - name: Publish the release with the ISO attached
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          V='${{ steps.ver.outputs.version }}'
+          TAG='${{ steps.ver.outputs.tag }}'
+          TITLE='HavenOS ${{ steps.ver.outputs.version }} "${{ steps.ver.outputs.codename }}"'
+
+          ISO="dist/havenos-$V/image/havenos-$V.iso"
+          SUM="$ISO.sha256"
+          ZIP="dist/havenos-$V.zip"
+
+          for f in "$ISO" "$SUM" "$ZIP" "$ZIP.sha256"; do
+            test -f "$f" || { echo "missing artefact: $f"; exit 1; }
+          done
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG exists; replacing its assets"
+            gh release upload "$TAG" "$ISO" "$SUM" "$ZIP" "$ZIP.sha256" \
+              --clobber
+          else
+            gh release create "$TAG" \
+              --target "$GITHUB_SHA" \
+              --title "$TITLE" \
+              --notes-file RELEASE_NOTES.md \
+              "$ISO" "$SUM" "$ZIP" "$ZIP.sha256"
+          fi
+
+          echo "Published:"
+          gh release view "$TAG" --json tagName,name,assets \
+            --jq '.tagName, .name, (.assets[] | "  \(.name)  \(.size) bytes")'

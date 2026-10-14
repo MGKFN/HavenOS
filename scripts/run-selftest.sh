@@ -21,7 +21,11 @@ TIMEOUT=${TIMEOUT:-120}
 MODE=${1:-bios}
 LOG=$(mktemp -t havenos-selftest.XXXXXX)
 
-cleanup() { rm -f "$LOG"; }
+# The self-test image has GRUB_DEFAULT=3 baked in, so leaving it behind
+# makes it look like an ordinary up-to-date ISO to the next `make iso`.
+# That is how a release once shipped an image that booted into the test
+# suite.  It is a test artefact and it does not outlive the test.
+cleanup() { rm -f "$LOG"; rm -f build/havenos-*.iso; }
 trap cleanup EXIT
 
 if ! command -v "$QEMU" >/dev/null 2>&1; then
