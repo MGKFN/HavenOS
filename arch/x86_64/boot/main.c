@@ -23,6 +23,7 @@
 #include <haven/arch/x86_64/cpu.h>
 #include <haven/fbcon.h>
 #include <haven/multiboot2.h>
+#include <haven/cmdline.h>
 #include <haven/arch/x86_64/boot.h>
 
 void x86_boot_main(uint32_t magic, uint32_t mbinfo_pa)
@@ -54,6 +55,11 @@ void x86_boot_main(uint32_t magic, uint32_t mbinfo_pa)
 	if (haven_boot_info.cmdline[0])
 		kinfo("boot: cmdline '%s'", haven_boot_info.cmdline);
 
+	/* Options that change what gets logged have to be honoured before
+	   the logging happens, which is why this is here and not in
+	   haven_kmain(). */
+	cmdline_apply_early(&haven_boot_info);
+
 	/* ── 4. Timekeeping ──────────────────────────────────────────────
 	   Depends on: CPU features (invariant TSC).  Done early so every
 	   log line below carries a real timestamp, and so delays used by
@@ -64,8 +70,11 @@ void x86_boot_main(uint32_t magic, uint32_t mbinfo_pa)
 	   Depends on: the direct map, and the boot_info framebuffer
 	   description.  Registering it here means it replays the log above,
 	   so the screen shows the whole boot and not just the tail. */
-	if (haven_boot_info.framebuffer.format != BOOT_FB_NONE)
+	if (haven_boot_info.framebuffer.format != BOOT_FB_NONE &&
+	    !cmdline_console_serial_only())
 		fbcon_init(&haven_boot_info.framebuffer);
+	else if (cmdline_console_serial_only())
+		kinfo("boot: display left untouched (console=serial)");
 
 	/* ── 6. Hand over to the architecture-neutral kernel ─────────────
 	   Everything from here on is portable code.  An ARM64 port

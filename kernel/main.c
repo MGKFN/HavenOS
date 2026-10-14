@@ -50,35 +50,7 @@
 #include <haven/virtio.h>
 #include <haven/fat.h>
 #include <haven/shell.h>
-
-/*
- * Is `flag` present in the kernel command line, as a whole word?
- *
- * Whole-word matching matters: a substring test would see "nosmp" inside
- * "nosmpfoo", and more importantly would see "selftest" inside a path.
- * HavenDOS's apply_cmdline() used a token comparison for the same reason.
- */
-static bool cmdline_has(const struct boot_info *bi, const char *flag)
-{
-	size_t flen = strlen(flag);
-	const char *p = bi->cmdline;
-
-	while (*p) {
-		while (*p == ' ')
-			p++;
-		if (!*p)
-			break;
-
-		const char *start = p;
-		while (*p && *p != ' ')
-			p++;
-
-		size_t tlen = (size_t)(p - start);
-		if (tlen == flen && strncmp(start, flag, flen) == 0)
-			return true;
-	}
-	return false;
-}
+#include <haven/cmdline.h>
 
 /*
  * Build the initial namespace.
@@ -372,7 +344,6 @@ void haven_kmain(struct boot_info *bi)
 	   after interrupts are on: an application processor needs a
 	   calibrated delay to wait out the INIT-SIPI timing, and the
 	   bring-up loop polls with time_delay_us(). */
-	acpi_init(bi);
 	if (cmdline_has(bi, "nosmp"))
 		kinfo("smp: disabled by the kernel command line");
 	else

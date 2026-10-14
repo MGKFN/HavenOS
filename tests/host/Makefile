@@ -60,11 +60,13 @@ KSRC_VFS   := $(TOP)/fs/vfs.c $(TOP)/fs/ramfs.c $(TOP)/kernel/sync/spinlock.c \
               $(TOP)/kernel/sync/mutex.c $(TOP)/kernel/errno.c
 KSRC_FAT   := $(TOP)/fs/fat/fat.c
 KSRC_ELF   := $(TOP)/kernel/proc/elf.c $(TOP)/kernel/errno.c
+KSRC_CMDL  := $(TOP)/kernel/cmdline.c
 KSRC_SCHED := $(TOP)/kernel/sched/sched_core.c
 
 COMMON := stubs.c $(KSRC_LIB)
 
-TESTS := test_string test_printf test_list test_pmm test_vfs test_elf
+TESTS := test_string test_printf test_list test_cmdline test_pmm \
+         test_vfs test_elf
 
 # Suites are added here as the subsystems they cover land.
 -include tests.mk
@@ -79,6 +81,9 @@ test_printf: test_printf.c $(COMMON)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 test_list: test_list.c $(COMMON)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+test_cmdline: test_cmdline.c $(COMMON) $(KSRC_CMDL)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 test_pmm: test_pmm.c $(COMMON) $(KSRC_PMM)
