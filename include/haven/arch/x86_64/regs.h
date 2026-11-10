@@ -47,6 +47,8 @@ struct trapframe {
 
 HAVEN_STATIC_ASSERT(sizeof(struct trapframe) == 22 * 8,
                     "trapframe layout must match arch/x86_64/cpu/entry.S");
+HAVEN_STATIC_ASSERT(offsetof(struct trapframe, cs) == 18 * 8,
+                    "TF_CS in arch/x86_64/cpu/entry.S is stale");
 
 /* Did this trap come from user mode?  The low two bits of CS are the
    privilege level the interrupted code was running at.  This is the test

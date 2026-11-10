@@ -42,9 +42,6 @@
 HAVEN_STATIC_ASSERT(offsetof(struct haven_cpu, kernel_stack_top) ==
                     PERCPU_OFF_KSTACK,
                     "PERCPU_OFF_KSTACK in percpu_asm.h is stale");
-HAVEN_STATIC_ASSERT(offsetof(struct haven_cpu, user_rsp) ==
-                    PERCPU_OFF_USER_RSP,
-                    "PERCPU_OFF_USER_RSP in percpu_asm.h is stale");
 
 #define MSR_GS_BASE        0xC0000101
 #define MSR_KERNEL_GS_BASE 0xC0000102
@@ -120,6 +117,10 @@ void percpu_set_count(uint32_t n)
 struct percpu_anchor {
 	struct haven_cpu *self;
 	struct haven_cpu *block;
+	/* Where syscall_entry parks the user stack pointer while it has no
+	   register to spare.  Valid only between SWAPGS and the push of the
+	   trap frame, with interrupts masked. */
+	uint64_t          scratch;
 };
 
 HAVEN_STATIC_ASSERT(offsetof(struct percpu_anchor, self) ==
@@ -128,6 +129,9 @@ HAVEN_STATIC_ASSERT(offsetof(struct percpu_anchor, self) ==
 HAVEN_STATIC_ASSERT(offsetof(struct percpu_anchor, block) ==
                     PERCPU_ANCHOR_BLOCK,
                     "PERCPU_ANCHOR_BLOCK in percpu_asm.h is stale");
+HAVEN_STATIC_ASSERT(offsetof(struct percpu_anchor, scratch) ==
+                    PERCPU_ANCHOR_SCRATCH,
+                    "PERCPU_ANCHOR_SCRATCH in percpu_asm.h is stale");
 
 static struct percpu_anchor anchors[HAVEN_MAX_CPUS];
 
