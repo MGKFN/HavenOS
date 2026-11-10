@@ -14,12 +14,12 @@ nothing else, which is checked mechanically by
 
 | | Count |
 |---|---|
-| Headers | 53 |
-| Functions | 470 |
+| Headers | 54 |
+| Functions | 472 |
 | Types | 88 |
 | Constants and macros | 341 |
 | Exported variables | 6 |
-| Declarations with documentation | 224 |
+| Declarations with documentation | 225 |
 
 ## Contents
 
@@ -31,6 +31,7 @@ nothing else, which is checked mechanically by
 - **Filesystems** — [`vfs.h`](#havenvfsh), [`ramfs.h`](#havenramfsh), [`devfs.h`](#havendevfsh), [`fat.h`](#havenfath)
 - **Devices and drivers** — [`device.h`](#havendeviceh), [`pci.h`](#havenpcih), [`block.h`](#havenblockh), [`ata.h`](#havenatah), [`virtio.h`](#havenvirtioh), [`input.h`](#haveninputh), [`fbcon.h`](#havenfbconh)
 - **Diagnostics** — [`selftest.h`](#havenselftesth), [`shell.h`](#havenshellh)
+- **Other interfaces** — [`syscall_nr.h`](#havenabisyscall_nrh)
 - **Architecture-private headers** — [`haven/arch/arm64/memlayout.h`](#havenarcharm64memlayouth), [`haven/arch/x86_64/acpi.h`](#havenarchx86_64acpih), [`haven/arch/x86_64/boot.h`](#havenarchx86_64booth), [`haven/arch/x86_64/cpu.h`](#havenarchx86_64cpuh), [`haven/arch/x86_64/gdt.h`](#havenarchx86_64gdth), [`haven/arch/x86_64/idt.h`](#havenarchx86_64idth), [`haven/arch/x86_64/io.h`](#havenarchx86_64ioh), [`haven/arch/x86_64/lapic.h`](#havenarchx86_64lapich), [`haven/arch/x86_64/memlayout.h`](#havenarchx86_64memlayouth), [`haven/arch/x86_64/paging.h`](#havenarchx86_64pagingh), [`haven/arch/x86_64/percpu.h`](#havenarchx86_64percpuh), [`haven/arch/x86_64/percpu_asm.h`](#havenarchx86_64percpu_asmh), [`haven/arch/x86_64/regs.h`](#havenarchx86_64regsh)
 
 ## Foundations
@@ -1314,7 +1315,15 @@ struct thread {
 	uint8_t            base_priority;   /* restored after a boost */
 	int32_t            slice_remaining; /* ticks left in this turn */
 
-	vaddr_t            kstack_top;      /* for freeing, and for the TSS */
+	vaddr_t            kstack_top;      /* the allocation's top; for freeing */
+	/* Where a trap arriving from user mode starts pushing: what the TSS
+	   rsp0 and the SYSCALL entry are given.  It is NOT kstack_top,
+	   because the saved context lives in the words just below
+	   kstack_top.  When the two were the same address, the SS slot of a
+	   user thread's interrupt frame and its saved stack pointer were
+	   the same eight bytes, so preempting a thread in ring 3 replaced
+	   its SS with a kernel address and the return faulted with #GP. */
+	vaddr_t            kstack_trap_top;
 	struct process    *proc;            /* NULL for a kernel thread */
 
 	/* Queue membership.  A thread is on exactly one of: a run queue, a
@@ -1323,6 +1332,12 @@ struct thread {
 	   lists and not an array index. */
 	struct list_head   queue_node;
 	struct list_head   proc_node;
+	/* Membership of the scheduler's list of every thread, which is what
+	   `ps` walks.  Separate from proc_node: one node cannot be on two
+	   lists, and when both lists shared proc_node, attaching a thread
+	   to its process spliced the process's list into the global one and
+	   the first `ps` after any program had run never terminated. */
+	struct list_head   all_node;
 
 	/* Threads blocked in thread_join() on this thread.  A per-thread
 	   wait queue rather than a single waiter pointer, because more than
@@ -1465,11 +1480,11 @@ struct haven_cpu {
 	/* Ring-0 stack this CPU's interrupt and syscall entry paths use. */
 	vaddr_t  kernel_stack_top;
 
-	/* Where the SYSCALL entry path parks the user stack pointer.  It
-	   has to live somewhere the kernel can reach with one instruction
-	   and before it owns a stack, which means per-CPU memory and not
-	   a register.  arch/x86_64/cpu/entry.S reads this at a hard-coded
-	   offset; percpu.c asserts that the offset is still right. */
+	/* Unused.  The SYSCALL entry path once parked the user stack pointer
+	   here; it now uses a scratch word in the architecture's own GS
+	   anchor (arch/x86_64/cpu/percpu.c), because reaching this field
+	   took a register the entry path did not have to spare.  Kept so
+	   the layout of the fields below does not move. */
 	vaddr_t  user_rsp;
 
 	/* Run queues, one list per priority band.  Per-CPU so that the
@@ -1844,7 +1859,7 @@ Supplied by a platform real-time-clock driver (drivers/char/rtc.c on a PC).  Wea
 
 processes: an address space, a file-descriptor table, and the threads that run inside them.
 
-*29 declarations, 5 carrying documentation.*
+*30 declarations, 6 carrying documentation.*
 
 **`PROC_NAME_MAX`** = `64`
 
@@ -1944,6 +1959,10 @@ Load an ELF64 executable from `path` into `proc` and create its first thread.  T
 Does not return.
 
 **`int proc_wait(pid_t_k pid, int *status_out)`**
+
+**`int proc_reap(pid_t_k pid, int *status_out)`**
+
+Wait for a process that has no parent process -- one the kernel itself started -- to exit, then free it.  This is waitpid() for kernel code, which has no process of its own to be the parent.  Returns the pid, or -ENOENT if there is no such process, or -ECHILD if it has a parent whose job the reaping is.
 
 **`int proc_kill(pid_t_k pid, int signal)`**
 
@@ -2117,71 +2136,9 @@ Load every PT_LOAD segment of the image in `data` into `pt`.  The caller owns `p
 
 the system-call interface.
 
-*74 declarations, 3 carrying documentation.*
+*43 declarations, 3 carrying documentation.*
 
 #### Syscall numbers.  Append only.
-
-**`SYS_exit`** = `0`
-
-**`SYS_write`** = `1`
-
-**`SYS_read`** = `2`
-
-**`SYS_open`** = `3`
-
-**`SYS_close`** = `4`
-
-**`SYS_lseek`** = `5`
-
-**`SYS_stat`** = `6`
-
-**`SYS_getpid`** = `7`
-
-**`SYS_gettid`** = `8`
-
-**`SYS_yield`** = `9`
-
-**`SYS_nanosleep`** = `10`
-
-**`SYS_uname`** = `11`
-
-**`SYS_brk`** = `12`
-
-**`SYS_mmap`** = `13`
-
-**`SYS_munmap`** = `14`
-
-**`SYS_fork`** = `15`
-
-**`SYS_execve`** = `16`
-
-**`SYS_waitpid`** = `17`
-
-**`SYS_kill`** = `18`
-
-**`SYS_getcwd`** = `19`
-
-**`SYS_chdir`** = `20`
-
-**`SYS_mkdir`** = `21`
-
-**`SYS_unlink`** = `22`
-
-**`SYS_readdir`** = `23`
-
-**`SYS_dup`** = `24`
-
-**`SYS_pipe`** = `25`
-
-**`SYS_time`** = `26`
-
-**`SYS_sysinfo`** = `27`
-
-**`SYS_thread_create`** = `28`
-
-**`SYS_thread_join`** = `29`
-
-**`SYS_MAX`** = `30`
 
 **`SYSCALL_ARG_MAX`** = `6`
 
@@ -3074,6 +3031,76 @@ the kernel shell.
 
 **`void shell_run(void)`**
 
+## Other interfaces
+
+### `haven/abi/syscall_nr.h`
+
+the system-call numbers, and nothing else.
+
+*31 declarations, 0 carrying documentation.*
+
+**`SYS_exit`** = `0`
+
+**`SYS_write`** = `1`
+
+**`SYS_read`** = `2`
+
+**`SYS_open`** = `3`
+
+**`SYS_close`** = `4`
+
+**`SYS_lseek`** = `5`
+
+**`SYS_stat`** = `6`
+
+**`SYS_getpid`** = `7`
+
+**`SYS_gettid`** = `8`
+
+**`SYS_yield`** = `9`
+
+**`SYS_nanosleep`** = `10`
+
+**`SYS_uname`** = `11`
+
+**`SYS_brk`** = `12`
+
+**`SYS_mmap`** = `13`
+
+**`SYS_munmap`** = `14`
+
+**`SYS_fork`** = `15`
+
+**`SYS_execve`** = `16`
+
+**`SYS_waitpid`** = `17`
+
+**`SYS_kill`** = `18`
+
+**`SYS_getcwd`** = `19`
+
+**`SYS_chdir`** = `20`
+
+**`SYS_mkdir`** = `21`
+
+**`SYS_unlink`** = `22`
+
+**`SYS_readdir`** = `23`
+
+**`SYS_dup`** = `24`
+
+**`SYS_pipe`** = `25`
+
+**`SYS_time`** = `26`
+
+**`SYS_sysinfo`** = `27`
+
+**`SYS_thread_create`** = `28`
+
+**`SYS_thread_join`** = `29`
+
+**`SYS_MAX`** = `30`
+
 ## Architecture-private headers
 
 Reachable only from `arch/<arch>/` and from the architecture's
@@ -3610,25 +3637,25 @@ byte offsets into the per-CPU block, for assembly.
 
 *4 declarations, 2 carrying documentation.*
 
-#### GS base points at struct percpu_anchor: { self, block }.
+#### GS base points at struct percpu_anchor: { self, block, scratch }.
 
 **`PERCPU_ANCHOR_SELF`** = `0`
 
 **`PERCPU_ANCHOR_BLOCK`** = `8`
 
+**`PERCPU_ANCHOR_SCRATCH`** = `16`
+
+user RSP, for the length of SYSCALL entry
+
 **`PERCPU_OFF_KSTACK`** = `24`
 
 Offsets within struct haven_cpu.
-
-**`PERCPU_OFF_USER_RSP`** = `32`
-
-user_rsp
 
 ### `haven/arch/x86_64/regs.h`
 
 the x86_64 trap frame.
 
-*11 declarations, 6 carrying documentation.*
+*12 declarations, 6 carrying documentation.*
 
 **`struct trapframe`**
 
@@ -3660,6 +3687,8 @@ struct trapframe {
 ```
 
 **`HAVEN_STATIC_ASSERT(sizeof(struct trapframe) == 22 * 8, "trapframe layout must match arch/x86_64/cpu/entry.S")`**
+
+**`HAVEN_STATIC_ASSERT(offsetof(struct trapframe, cs) == 18 * 8, "TF_CS in arch/x86_64/cpu/entry.S is stale")`**
 
 **`static inline bool trapframe_from_user(const struct trapframe *tf)`**
 

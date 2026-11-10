@@ -7,6 +7,60 @@ uses [semantic versioning](https://semver.org/).
 Versions before 1.0.0 make no interface-stability promise: the kernel API
 is internal and changes without notice.
 
+## [Unreleased]
+
+The result of the technical audit in [docs/AUDIT.md](docs/AUDIT.md).
+
+**0.1.0 could not run a program in user mode.** Its release notes listed
+the user/kernel boundary and the system-call interface as verified; they
+had never been exercised, because nothing in the tree ran in ring 3. The
+fixes below are what it took to run the first one.
+
+### Fixed
+
+- **Every system call returned `-ENOSYS`.** `syscall_entry` used `RAX` to
+  find the kernel stack before saving it, destroying the call number.
+- **`copy_from_user()` and `copy_to_user()` never returned.** The fault
+  landing pad was assembled at the copy loop's own exit label.
+- **Preempting a user thread panicked the kernel.** The saved context and
+  the top of the trap stack were the same eight bytes, so a context switch
+  overwrote the interrupted program's `SS`.
+- **Processes shared an address space.** `CR3` was loaded when a process
+  first ran and never again.
+- **Processes shared FPU/SSE registers.** The context switch saved none.
+- **`ps` hung after any program had run.** One list node was linked into
+  two lists.
+- **`exit()` did not exit the process**, only its thread.
+- **Program output was discarded.** Kernel-started processes had no
+  standard descriptors.
+- **Every process leaked all of its memory**, its thread and its kernel
+  stack when it exited.
+- **Compute-bound threads got half a CPU.** The boot threads idled at
+  normal priority.
+- **`sync` timed out on VirtIO disks.** The flush request was malformed.
+- `isr_common` decided whether to `SWAPGS` from the saved `RIP` instead of
+  the saved `CS`. Harmless only by coincidence.
+
+### Added
+
+- `user/`: a minimal user-space runtime and the user half of the
+  self-test suite, built with the kernel and embedded in it.
+- `include/haven/abi/syscall_nr.h`: system-call numbers shared between the
+  kernel and user programs.
+- A ring-3 test in the in-kernel suite (9 checks; the suite is now 91
+  checks across 14 tests).
+- `proc_reap()`: lets kernel code wait for and free a process it started.
+- CI on every push: `make check`, plus UEFI, 4-CPU, VirtIO and SMEP/SMAP
+  boot tests.
+- [docs/AUDIT.md](docs/AUDIT.md) and [docs/ROADMAP.md](docs/ROADMAP.md).
+
+### Changed
+
+- The kernel shell's `run` waits for the program and reports its exit
+  status, instead of returning at once.
+- `scripts/run-selftest.sh` stops the emulator when the verdict appears,
+  fails on a kernel panic, and takes `DISK_IF` and `CPU_MODEL`.
+
 ## [0.1.0] — 2026-10-14 — "Foundation"
 
 The first release. HavenOS is a 64-bit operating system derived from

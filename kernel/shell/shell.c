@@ -621,7 +621,18 @@ static int cmd_run(int argc, char **argv)
 		return rc;
 	}
 
-	out("started pid %d\n", pid);
+	/* Run it in the foreground: wait, report how it ended, and free it.
+	   The kernel shell is not a process, so nothing else will ever
+	   collect this child. */
+	int status = 0;
+	rc = proc_reap(pid, &status);
+	if (rc < 0) {
+		out("run: pid %d: %s\n", pid, haven_strerror(rc));
+		return rc;
+	}
+
+	if (status != 0)
+		out("pid %d exited with status %d\n", pid, status);
 	return 0;
 }
 

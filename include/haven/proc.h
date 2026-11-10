@@ -115,6 +115,13 @@ int proc_spawn(const char *path, const char *const argv[],
 
 void proc_exit(int code) HAVEN_NORETURN;
 int  proc_wait(pid_t_k pid, int *status_out);
+
+/* Wait for a process that has no parent process -- one the kernel itself
+   started -- to exit, then free it.  This is waitpid() for kernel code,
+   which has no process of its own to be the parent.  Returns the pid, or
+   -ENOENT if there is no such process, or -ECHILD if it has a parent
+   whose job the reaping is. */
+int  proc_reap(pid_t_k pid, int *status_out);
 int  proc_kill(pid_t_k pid, int signal);
 
 /* Terminate the current process because of an unrecoverable fault.

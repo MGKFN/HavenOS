@@ -129,6 +129,12 @@ void smp_ap_entry(uint32_t cpu_id)
 	/* 6. Idle.  The scheduler takes over from here: anything placed on
 	      this CPU's run queue will preempt the idle loop at the next
 	      tick. */
+	/* Drop to the idle band first.  This loop halts until the next
+	   interrupt, and at normal priority it took turns with real work:
+	   a compute-bound program got every other time slice and the CPU
+	   spent the rest halted with a runnable thread waiting. */
+	thread_set_priority(thread_current(), SCHED_PRIO_LEVELS - 1);
+
 	for (;;) {
 		sched_preempt_if_needed();
 		arch_idle();

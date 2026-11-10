@@ -46,6 +46,12 @@
    Push order is the reverse of struct trapframe's field order, because
    the stack grows down.  The _Static_assert in regs.h guards the size;
    the order has to be kept in agreement by reading both. */
+/* Offset of the saved CS in struct trapframe; regs.h asserts it. */
+#define TF_CS (18*8)
+
+/* Offset of the FXSAVE area in struct arch_context; context.c asserts it. */
+#define CTX_FPU 16
+
 .macro PUSH_REGS
 	pushq %rax
 	pushq %rbx
@@ -182,9 +188,11 @@ isr_common:
 
 	/* Decide whether GS must be swapped, from the privilege level the
 	   interrupted code was running at.  The pushed CS sits above the
-	   register block: 15 registers, then vector, then error code, then
-	   RIP, then CS. */
-	testl $3, 17*8(%rsp)
+	   register block: 15 registers (slots 0-14), vector (15), error
+	   code (16), RIP (17), then CS in slot 18.  This tested slot 17 for
+	   a long time -- the low bits of RIP, i.e. noise -- and got away
+	   with it only because both GS bases held the same value. */
+	testl $3, TF_CS(%rsp)
 	jz    1f
 	swapgs
 1:
@@ -203,7 +211,7 @@ isr_common:
 	   allowed to change the return frame (that is how a signal or a
 	   fork return is delivered), and the swap must follow where we are
 	   actually returning to. */
-	testl $3, 17*8(%rsp)
+	testl $3, TF_CS(%rsp)
 	jz    2f
 	swapgs
 2:
@@ -238,7 +246,10 @@ arch_context_switch:
 	pushq %r15
 
 	movq %rsp, 0(%rdi)     /* from->rsp = current stack pointer */
+	fxsave64 CTX_FPU(%rdi) /* from's x87/SSE state; see context.c */
+
 	movq 0(%rsi), %rsp     /* switch to the incoming stack */
+	fxrstor64 CTX_FPU(%rsi)
 
 	popq %r15
 	popq %r14
@@ -326,19 +337,32 @@ thread_trampoline:
 syscall_entry:
 	swapgs
 
-	/* Park the user stack pointer in the per-CPU block and take the
-	   kernel stack.  %gs:8 is percpu_anchor.block; the two offsets
-	   below are PERCPU_OFF_* from percpu_asm.h, checked against the C
-	   struct by _Static_assert. */
-	movq %gs:PERCPU_ANCHOR_BLOCK, %rax
-	movq %rsp, PERCPU_OFF_USER_RSP(%rax)
-	movq PERCPU_OFF_KSTACK(%rax), %rsp
+	/* Park the user stack pointer and take the kernel stack WITHOUT
+	   touching a general-purpose register.
+
+	   Every register is live here: RAX is the call number, RDI/RSI/RDX/
+	   R10/R8/R9 are arguments, RCX and R11 are the return RIP and RFLAGS
+	   SYSCALL just saved, and the rest are callee-saved state the user
+	   expects back.  The first version of this path loaded the per-CPU
+	   block into RAX to find the kernel stack, which destroyed the call
+	   number before it was saved: every system call from ring 3 was
+	   dispatched as call number <address of the per-CPU block> and
+	   returned -ENOSYS.
+
+	   So the user RSP goes into a scratch word in the GS-relative
+	   anchor, and RSP itself is the temporary used to reach the block.
+	   Interrupts are masked by SFMASK, so nothing can observe RSP
+	   holding a non-stack value, and the scratch word cannot be
+	   overwritten before it is pushed below. */
+	movq %rsp, %gs:PERCPU_ANCHOR_SCRATCH
+	movq %gs:PERCPU_ANCHOR_BLOCK, %rsp
+	movq PERCPU_OFF_KSTACK(%rsp), %rsp
 
 	/* Build a trap frame by hand, in the same layout the interrupt
 	   stubs produce, so syscalls and interrupts share every piece of
 	   code above this file. */
 	pushq $GDT_SEL_USER_DATA              /* ss     */
-	pushq PERCPU_OFF_USER_RSP(%rax)       /* rsp    */
+	pushq %gs:PERCPU_ANCHOR_SCRATCH       /* rsp    */
 	pushq %r11                            /* rflags, saved by SYSCALL */
 	pushq $GDT_SEL_USER_CODE              /* cs     */
 	pushq %rcx                            /* rip,    saved by SYSCALL */

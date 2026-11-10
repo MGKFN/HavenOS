@@ -101,6 +101,19 @@ static HAVEN_ALWAYS_INLINE void user_access_end(void)
  * instructions that can fault and therefore the number of fixup entries
  * to get right.  System-call buffers are small, and correctness here is
  * worth more than throughput.
+ *
+ * TWO BUGS THIS LAYOUT EXISTS TO PREVENT
+ * The first version put the fixup landing pad in `.pushsection .text`.
+ * The function is already in .text, so the pad was assembled exactly
+ * where the "done" label was: every copy, faulting or not, fell into
+ * `movl $-EFAULT, rc; jmp done` with `done` being that same instruction,
+ * and spun forever.  It also named the faulting load as `1b + 6`, a
+ * byte offset that is only right for one particular encoding of the two
+ * instructions before it.
+ *
+ * Now each instruction that may fault has its own label, and the landing
+ * pad sits inline behind the loop's back-edge where only a fixup can
+ * reach it, falling through to the exit.
  */
 static int copy_bytes(void *dst, const void *src, size_t len)
 {
@@ -109,26 +122,24 @@ static int copy_bytes(void *dst, const void *src, size_t len)
 	__asm__ volatile(
 		"1:\n\t"
 		"testq %[len], %[len]\n\t"
-		"jz    3f\n\t"
-		"movb  (%[src]), %%al\n"        /* may fault: reading user */
-		"2:\n\t"
-		"movb  %%al, (%[dst])\n"        /* may fault: writing user */
+		"jz    3f\n"
+		"10:\n\t"
+		"movb  (%[src]), %%al\n"       /* may fault: reading user */
+		"11:\n\t"
+		"movb  %%al, (%[dst])\n\t"     /* may fault: writing user */
 		"incq  %[src]\n\t"
 		"incq  %[dst]\n\t"
 		"decq  %[len]\n\t"
 		"jmp   1b\n"
+		"4:\n\t"                       /* reached only via a fixup */
+		"movl  $%c[efault], %[rc]\n"
 		"3:\n\t"
 		".pushsection .uaccess_fixup, \"a\", @progbits\n\t"
 		".align 8\n\t"
-		".quad 1b + 6\n\t"              /* the load  */
-		".quad 4f\n\t"
-		".quad 2b\n\t"                  /* the store */
-		".quad 4f\n\t"
-		".popsection\n\t"
-		".pushsection .text\n"
-		"4:\n\t"
-		"movl $%c[efault], %[rc]\n\t"
-		"jmp  3b\n\t"
+		".quad 10b\n\t"                /* the load  */
+		".quad 4b\n\t"
+		".quad 11b\n\t"                /* the store */
+		".quad 4b\n\t"
 		".popsection\n\t"
 		: [rc] "+r"(rc), [src] "+r"(src), [dst] "+r"(dst),
 		  [len] "+r"(len)

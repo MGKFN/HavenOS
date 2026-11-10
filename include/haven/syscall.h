@@ -29,38 +29,7 @@
 #include <haven/types.h>
 
 /* ── Syscall numbers.  Append only. ──────────────────────────────────── */
-#define SYS_exit          0
-#define SYS_write         1
-#define SYS_read          2
-#define SYS_open          3
-#define SYS_close         4
-#define SYS_lseek         5
-#define SYS_stat          6
-#define SYS_getpid        7
-#define SYS_gettid        8
-#define SYS_yield         9
-#define SYS_nanosleep    10
-#define SYS_uname        11
-#define SYS_brk          12
-#define SYS_mmap         13
-#define SYS_munmap       14
-#define SYS_fork         15
-#define SYS_execve       16
-#define SYS_waitpid      17
-#define SYS_kill         18
-#define SYS_getcwd       19
-#define SYS_chdir        20
-#define SYS_mkdir        21
-#define SYS_unlink       22
-#define SYS_readdir      23
-#define SYS_dup          24
-#define SYS_pipe         25
-#define SYS_time         26
-#define SYS_sysinfo      27
-#define SYS_thread_create 28
-#define SYS_thread_join  29
-
-#define SYS_MAX          30
+#include <haven/abi/syscall_nr.h>
 
 #define SYSCALL_ARG_MAX   6
 

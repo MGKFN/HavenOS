@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: MIT
+#
+# Build HavenOS and boot it, on every push and pull request.
+#
+# DESIGN NOTE
+# The release workflow runs `make check`, but only when a tag is pushed --
+# so a change could sit on a branch for weeks having never been booted.
+# This runs the same checks on every commit, and then boots the self-test
+# suite in the configurations that have each caught a real bug:
+#
+#   UEFI          a different memory map and no legacy text console
+#   4 CPUs        AP bring-up, per-CPU run queues
+#   VirtIO disk   a second block driver; its flush was broken for a release
+#   -cpu max      SMEP and SMAP, which QEMU's default CPU model lacks, so
+#                 the user-copy paths are only truly exercised here
+#
+# The suite includes a program run in ring 3 (user/selftest), so a broken
+# system-call path fails the build instead of shipping.
+name: ci
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # `make` stamps the build with the git revision
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential binutils python3 \
+            grub-pc-bin grub-efi-amd64-bin xorriso mtools \
+            qemu-system-x86 ovmf
+
+      - name: Host tests, portability check, build, BIOS boot test
+        run: make check
+
+      - name: Boot test, UEFI
+        run: ./scripts/run-selftest.sh uefi
+
+      - name: Boot test, 4 CPUs
+        run: CPUS=4 ./scripts/run-selftest.sh
+
+      - name: Boot test, VirtIO disk
+        run: DISK_IF=virtio CPUS=2 ./scripts/run-selftest.sh
+
+      - name: Boot test, SMEP and SMAP enabled
+        run: CPU_MODEL=max CPUS=2 ./scripts/run-selftest.sh

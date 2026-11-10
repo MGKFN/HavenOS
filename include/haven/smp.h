@@ -45,11 +45,11 @@ struct haven_cpu {
 	/* Ring-0 stack this CPU's interrupt and syscall entry paths use. */
 	vaddr_t  kernel_stack_top;
 
-	/* Where the SYSCALL entry path parks the user stack pointer.  It
-	   has to live somewhere the kernel can reach with one instruction
-	   and before it owns a stack, which means per-CPU memory and not
-	   a register.  arch/x86_64/cpu/entry.S reads this at a hard-coded
-	   offset; percpu.c asserts that the offset is still right. */
+	/* Unused.  The SYSCALL entry path once parked the user stack pointer
+	   here; it now uses a scratch word in the architecture's own GS
+	   anchor (arch/x86_64/cpu/percpu.c), because reaching this field
+	   took a register the entry path did not have to spare.  Kept so
+	   the layout of the fields below does not move. */
 	vaddr_t  user_rsp;
 
 	/* Run queues, one list per priority band.  Per-CPU so that the

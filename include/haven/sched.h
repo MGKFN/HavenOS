@@ -72,7 +72,15 @@ struct thread {
 	uint8_t            base_priority;   /* restored after a boost */
 	int32_t            slice_remaining; /* ticks left in this turn */
 
-	vaddr_t            kstack_top;      /* for freeing, and for the TSS */
+	vaddr_t            kstack_top;      /* the allocation's top; for freeing */
+	/* Where a trap arriving from user mode starts pushing: what the TSS
+	   rsp0 and the SYSCALL entry are given.  It is NOT kstack_top,
+	   because the saved context lives in the words just below
+	   kstack_top.  When the two were the same address, the SS slot of a
+	   user thread's interrupt frame and its saved stack pointer were
+	   the same eight bytes, so preempting a thread in ring 3 replaced
+	   its SS with a kernel address and the return faulted with #GP. */
+	vaddr_t            kstack_trap_top;
 	struct process    *proc;            /* NULL for a kernel thread */
 
 	/* Queue membership.  A thread is on exactly one of: a run queue, a
@@ -81,6 +89,12 @@ struct thread {
 	   lists and not an array index. */
 	struct list_head   queue_node;
 	struct list_head   proc_node;
+	/* Membership of the scheduler's list of every thread, which is what
+	   `ps` walks.  Separate from proc_node: one node cannot be on two
+	   lists, and when both lists shared proc_node, attaching a thread
+	   to its process spliced the process's list into the global one and
+	   the first `ps` after any program had run never terminated. */
+	struct list_head   all_node;
 
 	/* Threads blocked in thread_join() on this thread.  A per-thread
 	   wait queue rather than a single waiter pointer, because more than

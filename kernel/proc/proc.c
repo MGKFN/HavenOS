@@ -511,7 +511,13 @@ static void user_thread_entry(void *arg)
 	   entered, or the first trap from ring 3 pushes its frame onto
 	   whatever stack was there before. */
 	struct thread *self = thread_current();
-	arch_set_kernel_stack(self->kstack_top);
+	arch_set_kernel_stack(self->kstack_trap_top);
+
+	/* thread_create() makes the thread runnable before its creator has
+	   had the chance to attach it to the process, so this thread can be
+	   running while its own `proc` is still NULL.  Set it here, from the
+	   handoff, so no instruction in user mode ever runs without one. */
+	self->proc = p;
 
 	arch_pt_switch(p->pagetable);
 
@@ -538,6 +544,19 @@ int proc_spawn(const char *path, const char *const argv[],
 			__atomic_fetch_add(&f->refcount, 1, __ATOMIC_RELAXED);
 			p->fds[fd] = f;
 		}
+	}
+
+	/* A program started by the kernel itself -- from the kernel shell,
+	   or the first process -- has no parent to inherit from.  Give it
+	   the console, or its output goes to descriptors that do not exist
+	   and every write() returns -EBADF without a word appearing. */
+	for (int fd = 0; fd < 3; fd++) {
+		if (p->fds[fd])
+			continue;
+		struct vfs_file *f = NULL;
+		if (vfs_open("/dev/console", fd == 0 ? O_RDONLY : O_WRONLY, 0,
+		             &f) == 0)
+			p->fds[fd] = f;
 	}
 
 	int rc = proc_load_elf(p, path, argv, envp);
@@ -621,6 +640,82 @@ bool proc_fault_kill(const char *reason, int signal)
 	proc_exit(128 + signal);
 }
 
+/*
+ * Free a dead process: its threads' kernel stacks, its address space and
+ * the descriptor itself.  The caller has taken it off every list.
+ *
+ * The threads were not being freed at all -- only the page tables and the
+ * struct -- so every program that ever ran left its 16 KiB kernel stack
+ * and thread structure behind.
+ */
+static void proc_release(struct process *p)
+{
+	struct thread *t, *tmp;
+	list_for_each_entry_safe(t, tmp, &p->threads, proc_node) {
+		list_del_init(&t->proc_node);
+
+		/* The process is marked a zombie a few instructions before its
+		   last thread is: wait for the thread to finish leaving its
+		   own stack before that stack is freed. */
+		while (t->state != THREAD_ZOMBIE && t->state != THREAD_DEAD)
+			sched_yield();
+		thread_join(t);
+	}
+
+	if (p->pagetable)
+		arch_pt_destroy(p->pagetable);
+	kfree(p);
+}
+
+int proc_reap(pid_t_k pid, int *status_out)
+{
+	for (;;) {
+		irqflags_t f = spin_lock(&proc_lock);
+
+		struct process *p, *found = NULL;
+		list_for_each_entry(p, &all_processes, all_node) {
+			if (p->pid == pid) {
+				found = p;
+				break;
+			}
+		}
+
+		if (!found) {
+			spin_unlock(&proc_lock, f);
+			return -HAVEN_ENOENT;
+		}
+		if (found->parent) {
+			spin_unlock(&proc_lock, f);
+			return -HAVEN_ECHILD;
+		}
+
+		if (found->state == PROC_ZOMBIE) {
+			int code = found->exit_code;
+
+			list_del(&found->all_node);
+			found->state = PROC_DEAD;
+			if (stats.zombies)
+				stats.zombies--;
+			spin_unlock(&proc_lock, f);
+
+			proc_release(found);
+
+			if (status_out)
+				*status_out = code;
+			return pid;
+		}
+
+		spin_unlock(&proc_lock, f);
+
+		/* Poll, deliberately.  sched_block_on() after dropping the lock
+		   can miss a wake-up that lands in between (sched_wake_all() on
+		   an empty queue leaves no trace), and a missed wake-up here
+		   would hang the kernel shell.  Ten milliseconds of latency on
+		   a program's exit is the cheaper failure. */
+		time_sleep_ms(10);
+	}
+}
+
 int proc_wait(pid_t_k pid, int *status_out)
 {
 	struct process *self = proc_current();
@@ -651,9 +746,7 @@ int proc_wait(pid_t_k pid, int *status_out)
 				stats.zombies--;
 			spin_unlock(&proc_lock, f);
 
-			if (child->pagetable)
-				arch_pt_destroy(child->pagetable);
-			kfree(child);
+			proc_release(child);
 
 			if (status_out)
 				*status_out = code;

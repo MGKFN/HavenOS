@@ -64,6 +64,7 @@
 
 #define VIRTIO_BLK_F_RO        (1u << 5)
 #define VIRTIO_BLK_F_BLK_SIZE  (1u << 6)
+#define VIRTIO_BLK_F_FLUSH     (1u << 9)   /* has a write cache to flush */
 
 #define VIRTIO_BLK_T_IN        0
 #define VIRTIO_BLK_T_OUT       1
@@ -119,6 +120,7 @@ struct virtio_blk {
 	struct block_device bdev;
 	uint16_t io_base;
 	uint16_t queue_size;
+	bool     can_flush;   /* VIRTIO_BLK_F_FLUSH was negotiated */
 
 	/* The queue's three arrays, in one physically contiguous
 	   allocation because the device is told a single page-frame
@@ -213,13 +215,24 @@ static int virtio_submit_dma(struct virtio_blk *v, uint32_t type,
 	v->desc[d0].addr  = v->hdr_phys;
 	v->desc[d0].len   = sizeof(*v->hdr);
 	v->desc[d0].flags = VIRTQ_DESC_F_NEXT;
-	v->desc[d0].next  = d1;
 
-	v->desc[d1].addr  = buf_phys;
-	v->desc[d1].len   = len;
-	v->desc[d1].flags = (uint16_t)(VIRTQ_DESC_F_NEXT |
-	                               (device_writes ? VIRTQ_DESC_F_WRITE : 0));
-	v->desc[d1].next  = d2;
+	if (len != 0) {
+		v->desc[d0].next  = d1;
+
+		v->desc[d1].addr  = buf_phys;
+		v->desc[d1].len   = len;
+		v->desc[d1].flags = (uint16_t)(VIRTQ_DESC_F_NEXT |
+		                    (device_writes ? VIRTQ_DESC_F_WRITE : 0));
+		v->desc[d1].next  = d2;
+	} else {
+		/* A request with no data -- a flush -- is header then status,
+		   with nothing in between.  It used to carry a zero-length
+		   data descriptor, which the specification forbids: QEMU
+		   answers it by declaring the whole device broken, so the
+		   flush timed out after five seconds and every request after
+		   it failed too. */
+		v->desc[d0].next  = d2;
+	}
 
 	v->desc[d2].addr  = v->status_phys;
 	v->desc[d2].len   = 1;
@@ -348,6 +361,13 @@ static ssize_t_k vblk_write(struct block_device *bdev, uint64_t lba,
 static int vblk_flush(struct block_device *bdev)
 {
 	struct virtio_blk *v = bdev->driver_data;
+
+	/* A device that did not offer the flush feature has no volatile
+	   write cache: a completed write is already durable, and the command
+	   must not be sent at all. */
+	if (!v->can_flush)
+		return 0;
+
 	return virtio_submit(v, VIRTIO_BLK_T_FLUSH, 0, NULL, 0, false);
 }
 
@@ -403,6 +423,8 @@ static int vblk_probe(struct device *dev)
 		want |= VIRTIO_BLK_F_BLK_SIZE;
 	if (host_features & VIRTIO_BLK_F_RO)
 		want |= VIRTIO_BLK_F_RO;
+	if (host_features & VIRTIO_BLK_F_FLUSH)
+		want |= VIRTIO_BLK_F_FLUSH;
 	outl(v->io_base + VIRTIO_PCI_GUEST_FEATURES, want);
 
 	/* Queue 0 is the request queue. */
@@ -515,6 +537,7 @@ static int vblk_probe(struct device *dev)
 	v->bdev.sector_size  = blk_size;
 	v->bdev.sector_count = capacity / (blk_size / 512);
 	v->bdev.read_only    = (want & VIRTIO_BLK_F_RO) != 0;
+	v->can_flush         = (want & VIRTIO_BLK_F_FLUSH) != 0;
 
 	/* Only now is the device told the driver is ready.  Doing it before
 	   the queue address is published would let it process requests

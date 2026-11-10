@@ -38,6 +38,7 @@
 #include <haven/fat.h>
 #include <haven/errno.h>
 #include <haven/device.h>
+#include <haven/proc.h>
 
 static unsigned checks_run;
 static unsigned checks_failed;
@@ -821,6 +822,113 @@ static void test_block_layer(void)
 	tests_run++;
 }
 
+/* ── User mode ───────────────────────────────────────────────────────── */
+
+/*
+ * Every test above runs in ring 0.  This one runs a program in ring 3.
+ *
+ * The program is user/selftest/selftest.c, embedded in the kernel image by
+ * the build (tools/bin2c.py) so that the test needs no disk.  It is copied
+ * into the ramfs and started like any other executable, which means the
+ * whole path is on trial: the ELF loader, the first entry to ring 3, the
+ * SYSCALL entry and exit, copying across the boundary, preemption of a
+ * user thread, the address-space switch, fault attribution and reaping.
+ */
+extern const uint8_t user_selftest_elf[];
+extern const size_t  user_selftest_elf_size;
+
+#define USER_TEST_PATH "/bin/selftest"
+
+/* Spawn the test program with one mode argument and return its status, or
+   a negative errno if it could not be started or collected. */
+static int run_user(const char *mode, const char *arg, pid_t_k *pid_out)
+{
+	const char *argv[4] = { USER_TEST_PATH, mode, arg, NULL };
+	pid_t_k pid = 0;
+
+	int rc = proc_spawn(USER_TEST_PATH, argv, NULL, &pid);
+	if (rc != 0)
+		return rc;
+
+	if (pid_out) {
+		*pid_out = pid;
+		return 0;
+	}
+
+	int status = -1;
+	rc = proc_reap(pid, &status);
+	return rc < 0 ? rc : status;
+}
+
+static void test_user_mode(void)
+{
+	kinfo("selftest: user mode (ring 3)");
+
+	if (user_selftest_elf_size == 0) {
+		kwarn("selftest:   skipped (no user runtime for this architecture)");
+		tests_skipped++;
+		return;
+	}
+
+	ssize_t_k w = vfs_write_file(USER_TEST_PATH, user_selftest_elf,
+	                             user_selftest_elf_size);
+	check_eq("the test program is installed in /bin",
+	         (uint64_t)w, user_selftest_elf_size);
+	if (w != (ssize_t_k)user_selftest_elf_size) {
+		tests_run++;
+		return;
+	}
+
+	/* System calls, bad pointers, heap, files, register preservation.
+	   The status is the number of the first failed check in the
+	   program, so a failure here names its own cause. */
+	check_eq("a ring-3 program passes all of its own checks",
+	         (uint64_t)run_user("basic", NULL, NULL), 0);
+
+	/* Two programs at once, writing different bytes to the SAME virtual
+	   addresses.  Both can only be right if each has its own address
+	   space and every context switch loads the correct one. */
+	pid_t_k a = 0, b = 0;
+	int ra = run_user("pattern", "A", &a);
+	int rb = run_user("pattern", "B", &b);
+	check("two instances start side by side", ra == 0 && rb == 0);
+
+	int sa = -1, sb = -1;
+	if (ra == 0)
+		proc_reap(a, &sa);
+	if (rb == 0)
+		proc_reap(b, &sb);
+	check_eq("the first keeps its own memory", (uint64_t)sa, 0);
+	check_eq("the second keeps its own memory", (uint64_t)sb, 0);
+
+	/* Baseline for the leak check below, taken now so the allocator's
+	   caches are already warm: the first processes grow slabs that are
+	   legitimately kept, later ones must not grow anything. */
+	struct pmm_stats before;
+	pmm_get_stats(&before);
+
+	/* Protection.  128 + 11 is "killed by a segmentation fault"; the
+	   program exits with 99 if the access was allowed, so surviving is
+	   distinguishable from every other outcome. */
+	check_eq("reading kernel memory from ring 3 is fatal to the program",
+	         (uint64_t)run_user("fault-read", NULL, NULL), 128 + 11);
+	check_eq("writing to its own code is fatal to the program",
+	         (uint64_t)run_user("fault-write", NULL, NULL), 128 + 11);
+	check_eq("executing its own stack is fatal to the program",
+	         (uint64_t)run_user("fault-exec", NULL, NULL), 128 + 11);
+
+	/* Everything a process owned comes back when it is reaped: its
+	   pages, its page tables, its kernel stack. */
+	struct pmm_stats after;
+	pmm_get_stats(&after);
+	check_eq("three processes came and went without leaking a page",
+	         after.free_pages, before.free_pages);
+
+	vfs_unlink(USER_TEST_PATH);
+
+	tests_run++;
+}
+
 /* ── Runner ──────────────────────────────────────────────────────────── */
 
 bool selftest_run_all(void)
@@ -848,6 +956,7 @@ bool selftest_run_all(void)
 	test_ramfs();
 	test_block_layer();
 	test_fat();
+	test_user_mode();
 
 	kinfo("================================================================");
 	if (checks_failed == 0) {
