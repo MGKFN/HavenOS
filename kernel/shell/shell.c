@@ -603,7 +603,7 @@ static int cmd_sleep(int argc, char **argv)
 static int cmd_run(int argc, char **argv)
 {
 	if (argc < 2) {
-		out("usage: run <path-to-elf>\n");
+		out("usage: run <path-to-elf> [arguments...]\n");
 		return -HAVEN_EINVAL;
 	}
 
@@ -612,7 +612,25 @@ static int cmd_run(int argc, char **argv)
 	if (rc != 0)
 		return rc;
 
-	const char *child_argv[2] = { path, NULL };
+	/* The program's own name first, then whatever followed it on the
+	   command line.  Arguments beyond the limit are dropped with a note
+	   instead of silently, since a program would otherwise see a
+	   shorter command line than the one that was typed. */
+	enum { RUN_MAX_ARGS = 15 };
+	const char *child_argv[RUN_MAX_ARGS + 2];
+	int n = 0;
+
+	child_argv[n++] = path;
+	for (int a = 2; a < argc; a++) {
+		if (n > RUN_MAX_ARGS) {
+			out("run: only the first %d arguments are passed\n",
+			    RUN_MAX_ARGS);
+			break;
+		}
+		child_argv[n++] = argv[a];
+	}
+	child_argv[n] = NULL;
+
 	pid_t_k pid = 0;
 
 	rc = proc_spawn(path, child_argv, NULL, &pid);

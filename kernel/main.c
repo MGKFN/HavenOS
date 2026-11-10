@@ -52,6 +52,10 @@
 #include <haven/shell.h>
 #include <haven/cmdline.h>
 
+/* Built from user/hello by the Makefile (tools/bin2c.py). */
+extern const uint8_t user_hello_elf[];
+extern const size_t  user_hello_elf_size;
+
 /*
  * Build the initial namespace.
  *
@@ -108,6 +112,18 @@ static void mount_root_filesystems(void)
 	                 HAVENOS_BUILD_DATE, HAVENOS_BUILD_REV);
 	if (n > 0)
 		vfs_write_file("/etc/os-release", release, (size_t)n);
+
+	/* One program in /bin, so `run /bin/hello` works on a machine with
+	   no disk.  It is built from user/hello and embedded in the kernel
+	   image; an initial RAM disk replaces this arrangement once there
+	   is more than one program worth shipping (docs/ROADMAP.md). */
+	if (user_hello_elf_size != 0) {
+		ssize_t_k w = vfs_write_file("/bin/hello", user_hello_elf,
+		                             user_hello_elf_size);
+		if (w != (ssize_t_k)user_hello_elf_size)
+			kwarn("vfs: cannot install /bin/hello: %s",
+			      haven_strerror((int)w));
+	}
 }
 
 /*

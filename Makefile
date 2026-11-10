@@ -143,8 +143,12 @@ USER_CFLAGS := -std=gnu11 -O2 -g -ffreestanding -fno-builtin -nostdinc \
                -isystem $(shell $(CC) -print-file-name=include) \
                -Wall -Wextra -Werror
 USER_LIB    := user/lib/$(ARCH)
-USER_BLOB_C := $(BUILD)/gen/user_selftest_blob.c
-USER_ELF    := $(BUILD)/user/selftest.elf
+
+# One directory per program: user/<name>/<name>.c becomes
+# $(BUILD)/user/<name>.elf, embedded as the array user_<name>_elf.
+#   selftest   the user half of the kernel self-test suite
+#   hello      installed as /bin/hello at boot, so there is something to run
+USER_PROGS  := selftest hello
 
 ifneq ($(wildcard $(USER_LIB)/crt0.S),)
 $(BUILD)/user/%.o: user/%.c
@@ -157,30 +161,37 @@ $(BUILD)/user/%.o: user/%.S
 	$(Q)echo "  UAS     $<"
 	$(Q)$(CC) -D__ASSEMBLY__ -Iinclude -MMD -MP -c $< -o $@
 
-$(USER_ELF): $(BUILD)/user/lib/$(ARCH)/crt0.o $(BUILD)/user/selftest/selftest.o \
-             $(USER_LIB)/user.ld
-	$(Q)echo "  ULD     $@"
-	$(Q)$(LD) -nostdlib -static -S --build-id=none -z noexecstack \
-	       -z max-page-size=0x1000 -T $(USER_LIB)/user.ld -o $@ \
-	       $(filter %.o,$^)
+define USER_PROG_RULES
+$(BUILD)/user/$(1).elf: $(BUILD)/user/lib/$(ARCH)/crt0.o \
+                        $(BUILD)/user/$(1)/$(1).o $(USER_LIB)/user.ld
+	$$(Q)echo "  ULD     $$@"
+	$$(Q)$$(LD) -nostdlib -static -S --build-id=none -z noexecstack \
+	       -z max-page-size=0x1000 -T $(USER_LIB)/user.ld -o $$@ \
+	       $$(filter %.o,$$^)
 
-$(USER_BLOB_C): $(USER_ELF) tools/bin2c.py
-	$(Q)mkdir -p $(dir $@)
-	$(Q)echo "  BIN2C   $@"
-	$(Q)$(PYTHON) tools/bin2c.py user_selftest_elf $< $@
+$(BUILD)/gen/user_$(1)_blob.c: $(BUILD)/user/$(1).elf tools/bin2c.py
+	$$(Q)mkdir -p $$(dir $$@)
+	$$(Q)echo "  BIN2C   $$@"
+	$$(Q)$$(PYTHON) tools/bin2c.py user_$(1)_elf $$< $$@
+endef
 else
-$(USER_BLOB_C): tools/bin2c.py
-	$(Q)mkdir -p $(dir $@)
-	$(Q)echo "  BIN2C   $@ (no user runtime for $(ARCH); empty)"
-	$(Q)$(PYTHON) tools/bin2c.py user_selftest_elf - $@
+define USER_PROG_RULES
+$(BUILD)/gen/user_$(1)_blob.c: tools/bin2c.py
+	$$(Q)mkdir -p $$(dir $$@)
+	$$(Q)echo "  BIN2C   $$@ (no user runtime for $(ARCH); empty)"
+	$$(Q)$$(PYTHON) tools/bin2c.py user_$(1)_elf - $$@
+endef
 endif
+
+$(foreach p,$(USER_PROGS),$(eval $(call USER_PROG_RULES,$(p))))
 
 $(BUILD)/gen/%.o: $(BUILD)/gen/%.c
 	$(Q)echo "  CC      $<"
 	$(Q)$(CC) $(CFLAGS) -c $< -o $@
 
-OBJS += $(BUILD)/gen/user_selftest_blob.o
-DEPS_USER := $(BUILD)/user/lib/$(ARCH)/crt0.d $(BUILD)/user/selftest/selftest.d
+OBJS += $(foreach p,$(USER_PROGS),$(BUILD)/gen/user_$(p)_blob.o)
+DEPS_USER := $(BUILD)/user/lib/$(ARCH)/crt0.d \
+             $(foreach p,$(USER_PROGS),$(BUILD)/user/$(p)/$(p).d)
 DEPS := $(OBJS:.o=.d)
 
 KERNEL  := $(BUILD)/havenos.elf
