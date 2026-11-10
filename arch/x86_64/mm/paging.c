@@ -509,12 +509,22 @@ static void free_table(paddr_t table_pa, int level)
 {
 	uint64_t *t = table_at(table_pa);
 
-	if (level > 1) {
-		for (unsigned i = 0; i < PT_ENTRIES; i++) {
-			uint64_t e = t[i];
-			if (!(e & PTE_P) || (e & PTE_PS))
-				continue;
+	for (unsigned i = 0; i < PT_ENTRIES; i++) {
+		uint64_t e = t[i];
+		if (!(e & PTE_P) || (e & PTE_PS))
+			continue;
+		if (level > 1) {
 			free_table(e & PTE_ADDR_MASK, level - 1);
+		} else {
+			/* A leaf in the user half is an anonymous page the
+			   process owns outright: an ELF segment, its stack,
+			   its heap or an mmap.  Nothing is shared between
+			   address spaces yet, so the page dies with them.
+			   (When shared or file-backed mappings arrive, this
+			   is where a reference count has to be consulted.)
+			   Only the tables were freed before, so every program
+			   leaked all of its memory when it exited. */
+			pmm_free_page(e & PTE_ADDR_MASK);
 		}
 	}
 

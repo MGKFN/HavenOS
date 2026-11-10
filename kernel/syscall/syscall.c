@@ -54,9 +54,12 @@ int64_t sys_exit(const struct syscall_args *a)
 {
 	int code = (int)(int32_t)a->arg[0];
 
-	/* Weak-linked: when the process layer exists it terminates the whole
-	   process; until then exiting the thread is the honest equivalent. */
-	thread_exit(code);
+	/* proc_exit() marks the process a zombie, closes its descriptors and
+	   wakes a parent in waitpid() before ending the thread; for a kernel
+	   thread with no process it is thread_exit().  This called
+	   thread_exit() directly once, which left every exited program
+	   listed as "running" forever with its files still open. */
+	proc_exit(code);
 }
 
 int64_t sys_yield(const struct syscall_args *a)
