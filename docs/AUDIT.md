@@ -1,6 +1,6 @@
 # HavenOS 0.1 technical audit
 
-**Date:** 2026-11-10 · **Audited commit:** `1835fc3` (tag `v0.1.0`, "Foundation")
+**Date:** 2026-11-10 · **Audited commit:** `1835fc3` on `main` (version 0.1.0 "Foundation")
 **Branch with fixes:** `dev/0.1-audit` · **Scope:** the whole repository
 
 This is the audit called for by the HavenOS master development brief. Every
