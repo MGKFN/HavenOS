@@ -11,6 +11,13 @@
 # whether the timer interrupt actually preempts a spinning thread.
 #
 # Usage: scripts/run-selftest.sh [uefi]
+#
+# Environment:
+#   CPUS=n            number of processors (default 1)
+#   DISK_IF=ide|virtio   which block driver the test disk hangs off
+#   CPU_MODEL=name    QEMU -cpu model; `max` turns on SMEP and SMAP, which
+#                     the default model lacks
+#   TIMEOUT=seconds   give up after this long (default 120)
 
 set -eu
 
@@ -47,10 +54,11 @@ fi
 # tests have real media rather than reporting "skipped".  Built by mtools
 # rather than by HavenOS: a FAT driver tested only against volumes it
 # wrote itself will agree with its own mistakes.
+DISK_IF=${DISK_IF:-ide}          # ide or virtio: which block driver is on trial
 DISK="build/selftest-disk.img"
 DISK_ARGS=""
 if python3 tools/make_test_disk.py "$DISK" 64 >/dev/null 2>&1; then
-	DISK_ARGS="-drive file=$DISK,format=raw,if=ide"
+	DISK_ARGS="-drive file=$DISK,format=raw,if=$DISK_IF"
 	echo "  DISK    $DISK (MBR + FAT, written by mtools)"
 else
 	echo "  DISK    none (mtools unavailable); filesystem tests will skip"
@@ -66,18 +74,44 @@ if [ "$MODE" = "uefi" ]; then
 	FIRMWARE="-bios $OVMF"
 fi
 
-echo "  BOOT    $MODE, up to ${TIMEOUT}s"
+echo "  BOOT    $MODE, ${CPUS:-1} CPU, disk on ${DISK_IF}, cpu model ${CPU_MODEL:-default}, up to ${TIMEOUT}s"
+
+CPU_ARGS=""
+[ -n "${CPU_MODEL:-}" ] && CPU_ARGS="-cpu $CPU_MODEL"
+
 # shellcheck disable=SC2086
-timeout "$TIMEOUT" "$QEMU" \
-	-m 512 -smp "${CPUS:-1}" \
+"$QEMU" \
+	-m 512 -smp "${CPUS:-1}" $CPU_ARGS \
 	-cdrom "$ISO" -boot d \
 	-serial stdio -display none -no-reboot \
-	$DISK_ARGS $FIRMWARE > "$LOG" 2>&1 || true
+	$DISK_ARGS $FIRMWARE > "$LOG" 2>&1 < /dev/null &
+QEMU_PID=$!
 
-# The kernel idles forever after the tests, so a timeout is expected and
-# is not itself a failure.  What matters is whether the verdict appeared.
+# The kernel idles forever after the tests, so nothing ever makes QEMU
+# exit.  Waiting out the whole timeout cost two minutes per configuration
+# for a suite that finishes in three seconds; watch for the verdict
+# instead and stop the machine as soon as it appears.
+waited=0
+while [ "$waited" -lt "$TIMEOUT" ]; do
+	if grep -qE "PASSED:|FAILED:|KERNEL PANIC" "$LOG" 2>/dev/null; then
+		sleep 1   # let the lines after the verdict reach the log
+		break
+	fi
+	kill -0 "$QEMU_PID" 2>/dev/null || break
+	sleep 1
+	waited=$((waited + 1))
+done
+kill "$QEMU_PID" 2>/dev/null || true
+wait "$QEMU_PID" 2>/dev/null || true
+
+if grep -q "KERNEL PANIC" "$LOG"; then
+	echo "  FAIL    the kernel panicked ($MODE).  Last 40 lines:"
+	tail -40 "$LOG" | sed 's/^/    /'
+	exit 1
+fi
+
 if grep -q "PASSED:" "$LOG"; then
-	grep -E "selftest:.*(PASSED|FAILED|skipped)" "$LOG" | sed 's/^/  /'
+	grep -aE "PASSED:|skipped" "$LOG" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g; s/^/  /'
 	echo "  PASS    in-kernel self-tests passed ($MODE)"
 	exit 0
 fi

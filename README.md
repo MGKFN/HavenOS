@@ -106,6 +106,7 @@ recommended way to capture a boot on physical machines.
 | `drivers/` | Modular drivers: console, PCI, block, input |
 | `lib/` | Freestanding C library used by the kernel |
 | `include/haven/` | Public kernel API headers |
+| `user/` | User-space runtime and the ring-3 half of the self-test suite |
 | `tests/host/` | Host-side unit tests that compile the real kernel sources |
 | `docs/` | Architecture, API, developer and user documentation |
 
@@ -118,6 +119,8 @@ recommended way to capture a boot on physical machines.
 - [User guide](docs/USER.md) — booting and using the system
 - [ARM64 porting guide](docs/PORTING_ARM64.md) — the AArch64 path
 - [HavenDOS heritage](docs/HAVENDOS_HERITAGE.md) — what was inherited and what changed
+- [Technical audit](docs/AUDIT.md) — what works, what does not, with evidence
+- [Roadmap](docs/ROADMAP.md) — the plan from 0.1 onward
 - [Release notes](RELEASE_NOTES.md) — this release in detail
 - [Changelog](CHANGELOG.md) — what changed, and what broke on the way
 
