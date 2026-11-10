@@ -17,6 +17,8 @@
 #   DISK_IF=ide|virtio   which block driver the test disk hangs off
 #   CPU_MODEL=name    QEMU -cpu model; `max` turns on SMEP and SMAP, which
 #                     the default model lacks
+#   MACHINE=spec      QEMU -M machine; `q35,pit=off` removes the PIT, as
+#                     firmware on many real laptops does
 #   TIMEOUT=seconds   give up after this long (default 120)
 
 set -eu
@@ -78,6 +80,7 @@ echo "  BOOT    $MODE, ${CPUS:-1} CPU, disk on ${DISK_IF}, cpu model ${CPU_MODEL
 
 CPU_ARGS=""
 [ -n "${CPU_MODEL:-}" ] && CPU_ARGS="-cpu $CPU_MODEL"
+[ -n "${MACHINE:-}" ] && CPU_ARGS="$CPU_ARGS -M $MACHINE"
 
 # shellcheck disable=SC2086
 "$QEMU" \
