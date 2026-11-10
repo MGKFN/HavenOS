@@ -45,6 +45,7 @@
 .set MB2_MAGIC,         0xE85250D6
 .set MB2_ARCH_I386,     0
 .set MB2_TAG_ENTRY,     3
+.set MB2_TAG_FRAMEBUFFER, 5
 .set MB2_TAG_MODALIGN,  6
 .set MB2_TAG_END,       0
 
@@ -92,6 +93,36 @@ mb2_header:
 	.word   MB2_TAG_MODALIGN
 	.word   0
 	.long   8
+
+	/* Framebuffer tag: "this kernel can draw on a linear framebuffer;
+	   please set a graphics mode and tell me where it is".
+
+	   Without this tag the header says the kernel only understands
+	   EGA text.  Under BIOS that is true enough, but UEFI HAS no EGA
+	   text mode, so GRUB prints
+
+	       WARNING: no console will be available to OS
+
+	   and then makes one unprompted attempt at mode "auto".  QEMU's
+	   firmware accepts that attempt, which is why every UEFI test
+	   passed; the first real laptop it was tried on did not, and
+	   HavenOS 0.1.1 booted there with nothing on the screen at all.
+
+	   The size is a request, not a requirement: GRUB tries exactly
+	   this, then this at any depth, then "auto".  1280x800x32 is the
+	   value HavenDOS settled on and has proved on the same machines.
+	   Zero ("no preference") is NOT better -- HavenDOS measured it:
+	   GRUB then goes straight to "auto" and picks 800x600.
+
+	   The tag is marked optional (flags bit 0), so a loader that
+	   cannot give us graphics still boots us, on EGA text or serial. */
+	.align 8
+	.word   MB2_TAG_FRAMEBUFFER
+	.word   1                       /* flags: optional */
+	.long   20
+	.long   1280                    /* width  */
+	.long   800                     /* height */
+	.long   32                      /* depth  */
 
 	.align 8
 	.word   MB2_TAG_END
@@ -357,6 +388,7 @@ boot_mbinfo:    .long 0
 .global boot_pml4
 boot_pml4:              .skip 4096
 boot_pdpt_low:          .skip 4096
+.global boot_pdpt_high
 boot_pdpt_high:         .skip 4096
 boot_pd:                .skip 4096 * 4
 

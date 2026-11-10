@@ -25,6 +25,7 @@
 #include <haven/multiboot2.h>
 #include <haven/cmdline.h>
 #include <haven/arch/x86_64/boot.h>
+#include <haven/arch/x86_64/bootfb.h>
 
 void x86_boot_main(uint32_t magic, uint32_t mbinfo_pa)
 {
@@ -60,21 +61,30 @@ void x86_boot_main(uint32_t magic, uint32_t mbinfo_pa)
 	   haven_kmain(). */
 	cmdline_apply_early(&haven_boot_info);
 
-	/* ── 4. Timekeeping ──────────────────────────────────────────────
-	   Depends on: CPU features (invariant TSC).  Done early so every
-	   log line below carries a real timestamp, and so delays used by
-	   driver bring-up are calibrated rather than guessed. */
-	arch_time_init();
+	/* ── 4. Display, if firmware gave us one ─────────────────────────
+	   Depends on: only the boot_info framebuffer description.  It is
+	   mapped through its own window (bootfb.c) rather than the direct
+	   map, so it works wherever firmware put it.
 
-	/* ── 5. Display, if firmware gave us one ─────────────────────────
-	   Depends on: the direct map, and the boot_info framebuffer
-	   description.  Registering it here means it replays the log above,
-	   so the screen shows the whole boot and not just the tail. */
-	if (haven_boot_info.framebuffer.format != BOOT_FB_NONE &&
-	    !cmdline_console_serial_only())
-		fbcon_init(&haven_boot_info.framebuffer);
-	else if (cmdline_console_serial_only())
+	   This comes BEFORE timekeeping, and that order is the lesson of
+	   the first boot on real hardware: everything below this line can
+	   hang or fault on a machine that is not QEMU, and on a laptop the
+	   screen is the only place the reason can be shown.  Registering
+	   the console replays the log so far, so nothing above is lost. */
+	if (cmdline_console_serial_only()) {
 		kinfo("boot: display left untouched (console=serial)");
+	} else if (haven_boot_info.framebuffer.format == BOOT_FB_NONE) {
+		kwarn("boot: the loader passed no framebuffer; output is on the "
+		      "serial port only");
+	} else if (x86_bootfb_map(&haven_boot_info.framebuffer)) {
+		fbcon_init(&haven_boot_info.framebuffer);
+	}
+
+	/* ── 5. Timekeeping ──────────────────────────────────────────────
+	   Depends on: CPU features (invariant TSC).  Done early so the log
+	   lines below carry a real timestamp, and so delays used by driver
+	   bring-up are calibrated rather than guessed. */
+	arch_time_init();
 
 	/* ── 6. Hand over to the architecture-neutral kernel ─────────────
 	   Everything from here on is portable code.  An ARM64 port

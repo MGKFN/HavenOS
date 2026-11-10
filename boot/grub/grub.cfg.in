@@ -9,9 +9,35 @@
 set timeout=5
 set default=@DEFAULT_ENTRY@
 
+# VIDEO.  HavenOS draws its console on a linear framebuffer, and it gets
+# that framebuffer from the mode GRUB leaves behind.  This is the
+# arrangement HavenDOS arrived at on real UEFI laptops, copied rather than
+# reinvented:
+#
+#   - all_video loads every video driver this GRUB was built with (GOP and
+#     UGA on UEFI, VBE on BIOS).  Without one, no mode can be set at all.
+#   - GRUB's own menu runs in graphics (gfxterm), so a working mode is
+#     already active before the kernel is loaded, instead of the first
+#     mode switch happening at the moment of handover.
+#   - the mode the KERNEL gets is the one requested by the framebuffer tag
+#     in its Multiboot2 header (arch/x86_64/boot/boot.S), which GRUB
+#     honours above gfxmode and gfxpayload.  The list below styles the
+#     menu and is the fallback for a loader that ignores the tag.
+#
+# 0.1.1 had none of this except all_video, and its kernel header did not
+# ask for a framebuffer.  QEMU's firmware coped; a real laptop booted to
+# "WARNING: no console will be available to OS" and a dead screen.
 insmod all_video
 insmod gfxterm
-terminal_output console
+set gfxmode=1280x800,1920x1080,1600x900,1440x900,1366x768,1024x768,800x600,640x480,auto
+set gfxpayload=keep
+if terminal_output gfxterm; then
+	true
+else
+	# No usable graphics mode for the menu.  Keep the firmware's text
+	# console; the kernel will still ask for a framebuffer of its own.
+	terminal_output console
+fi
 
 menuentry "HavenOS @VERSION@ (@CODENAME@)" {
 	echo "Loading HavenOS @VERSION@ ..."

@@ -22,7 +22,7 @@
 
 #include <haven/types.h>
 
-#define BOOT_MAX_MEMMAP   64
+#define BOOT_MAX_MEMMAP   256   /* a real UEFI laptop reports well over 64 */
 #define BOOT_MAX_MODULES  8
 #define BOOT_CMDLINE_MAX  256
 
@@ -52,6 +52,12 @@ enum boot_fb_format {
 
 struct boot_framebuffer {
 	paddr_t  address;
+	/* Where the architecture has already mapped it, or 0 if it is to be
+	   reached through the direct map.  The firmware's framebuffer can
+	   be anywhere in physical memory -- above 4 GiB on most current
+	   laptops -- and the console must not assume the early direct map
+	   reaches that far. */
+	vaddr_t  mapped_at;
 	uint32_t width;          /* pixels, or columns for EGA text */
 	uint32_t height;         /* pixels, or rows for EGA text */
 	uint32_t pitch;          /* bytes per scanline */

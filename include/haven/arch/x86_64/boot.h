@@ -17,6 +17,7 @@ extern uint32_t boot_mbinfo;
 
 /* Boot page tables and stack, defined in boot.S. */
 extern uint64_t boot_pml4[];
+extern uint64_t boot_pdpt_high[];   /* PML4[511]: the kernel image window */
 extern uint8_t  boot_stack_bottom[];
 extern uint8_t  boot_stack_top[];
 

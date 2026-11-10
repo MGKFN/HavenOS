@@ -315,7 +315,9 @@ int fbcon_init(const struct boot_framebuffer *bfb)
 	   through the direct map rather than assuming it is identity
 	   mapped, which it will not be once the identity window is torn
 	   down. */
-	fb.base      = (volatile uint8_t *)arch_phys_to_virt(bfb->address);
+	fb.base      = bfb->mapped_at
+	             ? (volatile uint8_t *)bfb->mapped_at
+	             : (volatile uint8_t *)arch_phys_to_virt(bfb->address);
 	fb.pitch     = bfb->pitch;
 	fb.width_px  = bfb->width;
 	fb.height_px = bfb->height;

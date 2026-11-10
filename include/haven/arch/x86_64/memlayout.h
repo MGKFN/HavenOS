@@ -46,6 +46,14 @@
 #define KERNEL_VMA_BASE   0xFFFFFFFF80000000ULL
 #define KERNEL_LMA_BASE   0x0000000000200000ULL
 
+/* The boot framebuffer window: the top gigabyte of the address space,
+   the half of the kernel image window that the image itself does not
+   use.  The firmware's framebuffer is mapped here by 2 MiB pages before
+   anything else, wherever it is in physical memory -- see
+   arch/x86_64/boot/bootfb.c for why it cannot simply use the direct map. */
+#define BOOTFB_BASE       0xFFFFFFFFC0000000ULL
+#define BOOTFB_MAX_BYTES  0x0000000010000000ULL   /* 256 MiB: an 8K panel */
+
 /* Direct map of physical memory. */
 #define HHDM_BASE         0xFFFF800000000000ULL
 #define HHDM_SIZE         0x0000400000000000ULL   /* 64 TiB */

@@ -37,6 +37,7 @@
 #include <haven/errno.h>
 #include <haven/arch/x86_64/cpu.h>
 #include <haven/arch/x86_64/memlayout.h>
+#include <haven/arch/x86_64/bootfb.h>
 #include <haven/arch/x86_64/paging.h>
 #include <haven/arch/x86_64/boot.h>
 
@@ -606,6 +607,11 @@ void arch_pt_init_kernel(void)
 	kernel_pt.pt_pages  = 1;
 	pagetable_pages++;
 	kernel_pt_ready = true;
+
+	/* The display is already in use through the boot tables.  Give the
+	   new tables the same window now, so that the first log line after
+	   they are activated does not fault. */
+	x86_bootfb_carry_over();
 }
 
 int arch_pt_map_hhdm(paddr_t pa, size_t len)
