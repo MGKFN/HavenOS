@@ -7,6 +7,49 @@ uses [semantic versioning](https://semver.org/).
 Versions before 1.0.0 make no interface-stability promise: the kernel API
 is internal and changes without notice.
 
+## [0.1.2] — 2026-11-10 — "Foundation"
+
+The first boot on real hardware. 0.1.1 was tried on a UEFI laptop: GRUB
+printed `WARNING: no console will be available to OS` and nothing else
+ever appeared. This release fixes the cause of that warning and every
+other early-boot assumption found that holds in QEMU and not on a real
+PC. **It has not itself been booted on that laptop yet** — see
+`HANDOFF.md` for what to report if it stops again.
+
+### Fixed
+
+- **No display under UEFI on real hardware.** The kernel's Multiboot2
+  header did not ask for a framebuffer, so GRUB treated it as an EGA-text
+  kernel on firmware that has no EGA text. It now requests one, and
+  `grub.cfg` sets video up the way HavenDOS does on the same machines.
+- **A framebuffer above 4 GiB would have crashed the kernel before it
+  could say so.** It was reached through the early 4 GiB direct map. It
+  now has its own mapping, wherever firmware put it.
+- **A machine with no PIT got a TSC of "0.030 MHz"**, and every delay,
+  timeout and timestamp was wrong by five orders of magnitude. Firmware on
+  many laptops disables the PIT.
+- **Waiting for a PIT that never answers could take minutes** with a
+  blank screen.
+- **Any boot where the loader passed no ACPI pointer panicked** in the
+  legacy RSDP search.
+- A firmware memory map with more than 64 regions was truncated.
+
+### Added
+
+- The display is brought up before anything else that can fail, so a
+  machine with no serial port can show where the boot stopped.
+- The ACPI PM timer and CPUID as fallback clocks for TSC calibration.
+- An APIC left in x2APIC mode by firmware is detected and reported, and
+  the legacy interrupt path used instead.
+- A boot test with the PIT removed, in CI.
+
+### Changed
+
+- BIOS boots now get a 1280×800 graphical console too, instead of 80×25
+  EGA text. EGA text remains the fallback when no graphics mode can be
+  set.
+- GRUB's menu is drawn in graphics mode.
+
 ## [0.1.1] — 2026-11-10 — "Foundation"
 
 The release in which HavenOS runs programs. It is the result of the
@@ -312,5 +355,6 @@ thing that found it is part of the deliverable.
 - **Unprivileged ATA PIO only.** Transfers are synchronous and
   single-sector, which is correct and slow.
 
+[0.1.2]: https://github.com/MGKFN/HavenOS/releases/tag/v0.1.2
 [0.1.1]: https://github.com/MGKFN/HavenOS/releases/tag/v0.1.1
 [0.1.0]: https://github.com/MGKFN/HavenOS/releases/tag/v0.1.0

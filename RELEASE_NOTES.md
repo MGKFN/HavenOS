@@ -1,4 +1,4 @@
-# HavenOS 0.1.1 "Foundation"
+# HavenOS 0.1.2 "Foundation"
 
 **Released 10 November 2026 · MIT licensed · x86_64**
 
@@ -13,7 +13,64 @@ before planning anything around it.
 
 ---
 
-## What 0.1.1 is: a correction
+## What 0.1.2 is: the first real-hardware fixes
+
+0.1.1 was booted on a real UEFI laptop for the first time. GRUB printed
+`WARNING: no console will be available to OS`, and the screen stayed
+exactly as GRUB left it. With no serial port on the machine there was no
+way to tell whether the kernel had crashed, hung, or was running.
+
+The warning had one definite cause, fixed here: the kernel never told
+GRUB it could use a framebuffer. Why nothing appeared *afterwards* on
+that laptop is not known, so 0.1.2 also removes every early-boot
+assumption that was found to hold in QEMU and not on a real PC:
+
+| Assumption in 0.1.1 | Reality | Now |
+|---|---|---|
+| The loader will set a video mode unasked | Only QEMU's firmware did | The kernel requests 1280×800×32; GRUB falls back to any mode it can set |
+| The framebuffer is below 4 GiB | Current laptops often put it above | Mapped through its own window, at any address |
+| The PIT exists and counts | Firmware on many laptops gates it off | Results are sanity-checked; ACPI PM timer and CPUID are fallbacks |
+| Waiting for the PIT is quick | 100 million port reads is minutes on hardware | Bounded to about a second |
+| The loader passes the ACPI pointer | Not guaranteed | The legacy search no longer faults |
+| The APIC is in xAPIC mode | Some firmware hands over in x2APIC | Detected and reported; legacy path used |
+| Firmware reports at most 64 memory regions | Real maps are longer | 256 |
+
+And the display now comes up **first**, before any of the rest, so that
+the next failure on a machine like that one is written on the screen.
+
+### What was and was not verified
+
+Under QEMU 8.2: the self-tests pass on 13 display configurations (five
+graphics adapters and no adapter at all, under both BIOS and UEFI), with
+the PIT removed, with ACPI removed, and on the usual matrix (4 CPUs,
+VirtIO, SMEP/SMAP). `make release` passes.
+
+**Not verified: the laptop.** Nothing here has been run on real
+hardware. The x2APIC path and a framebuffer physically above 4 GiB could
+not be produced in the emulator at all; the code for the second is the
+same code that runs for every framebuffer, which is the most that can be
+said for it.
+
+### If it still does not boot on your machine
+
+Choose **verbose boot log** in the GRUB menu and photograph the screen
+where it stops. The last line names the step that did not finish. If the
+screen is still blank after GRUB's menu, say so — that means GRUB could
+not set any graphics mode, which is a different problem from a kernel
+that hangs.
+
+### Known limits on real hardware
+
+- **The internal keyboard must be PS/2-style** (most laptop keyboards
+  are). USB keyboards do not work: there is no USB driver.
+- **No disk will be found** on most machines: there is no AHCI or NVMe
+  driver. `/bin/hello` and the RAM filesystem work without one.
+- **The console scrolls slowly** on real graphics hardware; the
+  framebuffer is not mapped write-combining yet.
+
+---
+
+## What 0.1.1 was: a correction
 
 **0.1.0 said it ran programs in user mode. It did not.** These notes
 listed "a real user/kernel boundary" and the system-call interface under
@@ -68,13 +125,13 @@ not been reproduced or fixed; they are listed in
 ### Getting it
 
 The ISO is attached to the
-[GitHub release](https://github.com/MGKFN/HavenOS/releases/tag/v0.1.1), or
+[GitHub release](https://github.com/MGKFN/HavenOS/releases/tag/v0.1.2), or
 build it:
 
 ```bash
 git clone https://github.com/MGKFN/HavenOS.git
 cd HavenOS
-make iso          # build/havenos-0.1.1.iso
+make iso          # build/havenos-0.1.2.iso
 make run          # boot it under QEMU with the log on your terminal
 ```
 

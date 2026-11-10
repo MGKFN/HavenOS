@@ -132,7 +132,15 @@ haven:/$ run /bin/hello one two
 Attach this zip, or at least `HANDOFF.md` and `HavenOS-{ver}-source.zip`.
 The handoff says what works, what does not, and what to do next.
 
-Verified under QEMU only. Not yet booted on real hardware.
+## Booting it on a real machine
+
+Write the ISO to a USB stick as a raw image (Rufus in "DD image" mode,
+balenaEtcher, or `dd`). In the GRUB menu choose **verbose boot log**. If
+it stops, photograph the screen: the last line names the step that did
+not finish. `RELEASE_NOTES.md` lists what is known not to work on real
+hardware.
+
+Verified under QEMU only. See `HANDOFF.md` for where real hardware stands.
 """
 
     members = [

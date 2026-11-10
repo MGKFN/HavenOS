@@ -14,12 +14,12 @@ nothing else, which is checked mechanically by
 
 | | Count |
 |---|---|
-| Headers | 54 |
-| Functions | 472 |
+| Headers | 55 |
+| Functions | 475 |
 | Types | 88 |
-| Constants and macros | 341 |
-| Exported variables | 6 |
-| Declarations with documentation | 225 |
+| Constants and macros | 343 |
+| Exported variables | 7 |
+| Declarations with documentation | 232 |
 
 ## Contents
 
@@ -32,7 +32,7 @@ nothing else, which is checked mechanically by
 - **Devices and drivers** — [`device.h`](#havendeviceh), [`pci.h`](#havenpcih), [`block.h`](#havenblockh), [`ata.h`](#havenatah), [`virtio.h`](#havenvirtioh), [`input.h`](#haveninputh), [`fbcon.h`](#havenfbconh)
 - **Diagnostics** — [`selftest.h`](#havenselftesth), [`shell.h`](#havenshellh)
 - **Other interfaces** — [`syscall_nr.h`](#havenabisyscall_nrh)
-- **Architecture-private headers** — [`haven/arch/arm64/memlayout.h`](#havenarcharm64memlayouth), [`haven/arch/x86_64/acpi.h`](#havenarchx86_64acpih), [`haven/arch/x86_64/boot.h`](#havenarchx86_64booth), [`haven/arch/x86_64/cpu.h`](#havenarchx86_64cpuh), [`haven/arch/x86_64/gdt.h`](#havenarchx86_64gdth), [`haven/arch/x86_64/idt.h`](#havenarchx86_64idth), [`haven/arch/x86_64/io.h`](#havenarchx86_64ioh), [`haven/arch/x86_64/lapic.h`](#havenarchx86_64lapich), [`haven/arch/x86_64/memlayout.h`](#havenarchx86_64memlayouth), [`haven/arch/x86_64/paging.h`](#havenarchx86_64pagingh), [`haven/arch/x86_64/percpu.h`](#havenarchx86_64percpuh), [`haven/arch/x86_64/percpu_asm.h`](#havenarchx86_64percpu_asmh), [`haven/arch/x86_64/regs.h`](#havenarchx86_64regsh)
+- **Architecture-private headers** — [`haven/arch/arm64/memlayout.h`](#havenarcharm64memlayouth), [`haven/arch/x86_64/acpi.h`](#havenarchx86_64acpih), [`haven/arch/x86_64/boot.h`](#havenarchx86_64booth), [`haven/arch/x86_64/bootfb.h`](#havenarchx86_64bootfbh), [`haven/arch/x86_64/cpu.h`](#havenarchx86_64cpuh), [`haven/arch/x86_64/gdt.h`](#havenarchx86_64gdth), [`haven/arch/x86_64/idt.h`](#havenarchx86_64idth), [`haven/arch/x86_64/io.h`](#havenarchx86_64ioh), [`haven/arch/x86_64/lapic.h`](#havenarchx86_64lapich), [`haven/arch/x86_64/memlayout.h`](#havenarchx86_64memlayouth), [`haven/arch/x86_64/paging.h`](#havenarchx86_64pagingh), [`haven/arch/x86_64/percpu.h`](#havenarchx86_64percpuh), [`haven/arch/x86_64/percpu_asm.h`](#havenarchx86_64percpu_asmh), [`haven/arch/x86_64/regs.h`](#havenarchx86_64regsh)
 
 ## Foundations
 
@@ -543,9 +543,9 @@ the single source of truth for the HavenOS version.
 
 **`HAVENOS_VERSION_MINOR`** = `1`
 
-**`HAVENOS_VERSION_PATCH`** = `1`
+**`HAVENOS_VERSION_PATCH`** = `2`
 
-**`HAVENOS_VERSION`** = `"0.1.1"`
+**`HAVENOS_VERSION`** = `"0.1.2"`
 
 **`HAVENOS_CODENAME`** = `"Foundation"`
 
@@ -573,9 +573,11 @@ kernel entropy.
 
 architecture-neutral boot information.
 
-*13 declarations, 0 carrying documentation.*
+*13 declarations, 1 carrying documentation.*
 
-**`BOOT_MAX_MEMMAP`** = `64`
+**`BOOT_MAX_MEMMAP`** = `256`
+
+a real UEFI laptop reports well over 64
 
 **`BOOT_MAX_MODULES`** = `8`
 
@@ -622,6 +624,12 @@ enum boot_fb_format {
 ```c
 struct boot_framebuffer {
 	paddr_t  address;
+	/* Where the architecture has already mapped it, or 0 if it is to be
+	   reached through the direct map.  The firmware's framebuffer can
+	   be anywhere in physical memory -- above 4 GiB on most current
+	   laptops -- and the console must not assume the early direct map
+	   reaches that far. */
+	vaddr_t  mapped_at;
 	uint32_t width;          /* pixels, or columns for EGA text */
 	uint32_t height;         /* pixels, or rows for EGA text */
 	uint32_t pitch;          /* bytes per scanline */
@@ -3183,7 +3191,7 @@ With TTBR0 and TTBR1 both configured for a 48-bit range, an address is valid whe
 
 just enough ACPI to find the other CPUs.
 
-*6 declarations, 0 carrying documentation.*
+*7 declarations, 1 carrying documentation.*
 
 **`ACPI_MAX_CPUS`** = `64`
 
@@ -3213,11 +3221,15 @@ struct acpi_info {
 
 **`const struct acpi_info *acpi_get_info(void)`**
 
+**`bool acpi_early_pm_timer(const struct boot_info *bi, paddr_t early_limit, uint16_t *port_out, bool *is_32bit_out)`**
+
+Find the ACPI PM timer's I/O port.  Usable before the kernel's page tables are up; `early_limit` is how much physical memory is mapped.
+
 ### `haven/arch/x86_64/boot.h`
 
 x86_64 boot entry points shared between boot.S and C.
 
-*6 declarations, 1 carrying documentation.*
+*7 declarations, 2 carrying documentation.*
 
 **`void x86_boot_main(uint32_t magic, uint32_t mbinfo_pa)`**
 
@@ -3235,9 +3247,27 @@ Does not return.
 
 **`extern uint64_t boot_pml4[]`**
 
+**`extern uint64_t boot_pdpt_high[]`**
+
+PML4[511]: the kernel image window
+
 **`extern uint8_t boot_stack_bottom[]`**
 
 **`extern uint8_t boot_stack_top[]`**
+
+### `haven/arch/x86_64/bootfb.h`
+
+the boot framebuffer window (x86_64).
+
+*2 declarations, 2 carrying documentation.*
+
+**`bool x86_bootfb_map(struct boot_framebuffer *fb)`**
+
+Map the firmware's framebuffer into the boot page tables and record where in fb->mapped_at.  Safe to call for any framebuffer, including one that is absent or is EGA text (which it leaves alone).  Returns false if the framebuffer could not be mapped, in which case it must not be used before the kernel's own page tables are active.
+
+**`void x86_bootfb_carry_over(void)`**
+
+Recreate the same mapping in the kernel's own page tables.  Called while they are being built, before they are activated, so the console's pointer stays valid across the switch.
 
 ### `haven/arch/x86_64/cpu.h`
 
@@ -3529,13 +3559,21 @@ Local APIC interface.
 
 the x86_64 virtual address space map.
 
-*23 declarations, 10 carrying documentation.*
+*25 declarations, 12 carrying documentation.*
 
 #### Kernel image window.  Must match arch/x86_64/boot/linker.ld.
 
 **`KERNEL_VMA_BASE`** = `0xFFFFFFFF80000000ULL`
 
 **`KERNEL_LMA_BASE`** = `0x0000000000200000ULL`
+
+**`BOOTFB_BASE`** = `0xFFFFFFFFC0000000ULL`
+
+The boot framebuffer window: the top gigabyte of the address space, the half of the kernel image window that the image itself does not use.  The firmware's framebuffer is mapped here by 2 MiB pages before anything else, wherever it is in physical memory -- see arch/x86_64/boot/bootfb.c for why it cannot simply use the direct map.
+
+**`BOOTFB_MAX_BYTES`** = `0x0000000010000000ULL`
+
+256 MiB: an 8K panel
 
 **`HHDM_BASE`** = `0xFFFF800000000000ULL`
 

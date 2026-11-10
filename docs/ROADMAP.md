@@ -20,7 +20,7 @@ says what order to build things in and why.
 
 1. **Nothing is "done" without a test that boots.** Every milestone below ends with a check in the in-kernel suite or the user suite, run by CI.
 2. **User space first.** The next most valuable thing is always whatever lets more code leave ring 0.
-3. **QEMU before hardware, then one real machine early.** Real-hardware bring-up finds a different class of bug; do it at 0.1.3, not at 1.0.
+3. **QEMU before hardware, then one real machine early.** Real-hardware bring-up finds a different class of bug. (It happened at 0.1.1, by the owner, and found a release's worth of them.)
 4. **Small releases.** Each one below is a few weeks at most and leaves `main` bootable.
 
 ## 0.1.1 — "It runs programs" (released 2026-11-10)
@@ -29,7 +29,18 @@ Done. Ring 3 works, is tested on every push, and nothing leaks; the
 release notes carry the correction to 0.1.0. Contents are in AUDIT.md
 section 6, plus `/bin/hello` and arguments for `run`.
 
-## 0.1.2 — A process model you can build a shell on
+## 0.1.2 — First real-hardware fixes (released 2026-11-10)
+
+0.1.1 was booted on a UEFI laptop and showed nothing. Done in response:
+a framebuffer requested from GRUB and mapped at any physical address, the
+display brought up first, TSC calibration that survives a missing PIT
+(ACPI PM timer and CPUID fallbacks), a legacy ACPI search that does not
+fault, x2APIC detected. **Not yet re-tested on that laptop.**
+
+Still to come from the same boot, once it gets further: whatever the
+screen shows next.
+
+## 0.1.3 — A process model you can build a shell on
 
 Goal: a user program can start another program, pass it arguments, wait
 for it, and talk to it.
@@ -42,7 +53,7 @@ for it, and talk to it.
 6. **Safe thread reaping across CPUs** and a simple load balancer (idle CPUs steal), so SMP does work instead of only coming online.
 7. **Move the shared ABI** — errno values, open flags, `struct stat` — into `include/haven/abi/` beside `syscall_nr.h`.
 
-## 0.1.3 — User space exists
+## 0.1.4 — User space exists
 
 Goal: the kernel shell becomes a debugging aid, not the interface.
 
@@ -51,19 +62,19 @@ Goal: the kernel shell becomes a debugging aid, not the interface.
 3. **Core utilities** as separate programs: `ls cat echo mkdir rm cp mv ps kill uname date hexdump`.
 4. **An initial RAM disk** loaded as a Multiboot2 module (`boot_info` already carries modules) so `/bin` is populated at boot without a disk.
 5. **A TTY layer**: line discipline, echo, Ctrl-C → SIGINT, so keyboard and serial behave the same for every program.
-6. **First real-hardware boot** from USB stick on one known machine, serial log captured. Expect to fix things.
+6. **A full boot to the shell on real hardware**, with a photo of the log. Expect to fix things.
 
-## 0.1.4 — Real machines
+## 0.1.5 — Real machines
 
 1. **I/O APIC** with MADT interrupt source overrides; retire the PIC except as a fallback.
-2. **Framebuffer request** in the Multiboot2 header so BIOS boots get graphics too.
+2. **Write-combining framebuffer** (program the PAT) so the console is fast on real graphics hardware; **x2APIC** support.
 3. **AHCI** (the disk controller on essentially every PC since 2008), interrupt-driven.
 4. **Buffer cache** in the block layer; **FAT long-name writes**.
 5. **Persistent configuration**: `/etc` on disk, mounted at boot from a command-line `root=`.
 6. **ACPI power-off and reboot.**
 7. **PS/2 mouse.**
 
-## 0.1.5 — Users and permissions
+## 0.1.6 — Users and permissions
 
 1. Enforce the owner/mode bits the VFS already stores.
 2. `setuid`/`getuid`, a passwd file, `login`.
@@ -92,7 +103,7 @@ surface can support one.
 
 virtio-net and e1000 → Ethernet/ARP → IPv4/ICMP → UDP → DHCP → TCP → DNS →
 a sockets API. An independent stack is a large project; plan for it to be
-the longest phase. Security auditing runs alongside from 0.1.5 onward, not
+the longest phase. Security auditing runs alongside from 0.1.6 onward, not
 at the end.
 
 ## Deferred, deliberately

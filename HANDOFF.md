@@ -6,10 +6,13 @@ chat. Read this first, then [docs/AUDIT.md](docs/AUDIT.md) and
 
 ## Current release
 
-**HavenOS 0.1.1 "Foundation"**, 2026-11-10. Tag `v0.1.1` on `main`.
+**HavenOS 0.1.2 "Foundation"**, 2026-11-10, on `main`. The GitHub release
+(and its `v0.1.2` tag) is made by running the **release** workflow by hand
+with that tag; check the Releases page before assuming it exists.
 
 | Release | Date | What it was |
 |---|---|---|
+| 0.1.2 | 2026-11-10 | First real-hardware fixes after 0.1.1 showed nothing on a UEFI laptop: framebuffer request, display first, PIT-less timekeeping |
 | 0.1.1 | 2026-11-10 | User mode actually works; 12 defects fixed; ring-3 test in the suite; `/bin/hello`; CI on every push |
 | 0.1.0 | 2026-10-14 | First release. Kernel foundation. Claimed user mode; it did not work |
 
@@ -23,6 +26,28 @@ consoles. The shell runs inside the kernel. One user program ships:
 `/bin/hello`.
 
 It is **not** a Linux distribution and shares no code with one.
+
+## Real hardware: where it stands
+
+0.1.1 was booted from USB on a real UEFI laptop on 2026-11-10. GRUB
+loaded it, printed `WARNING: no console will be available to OS`, and
+nothing else appeared. 0.1.2 is the response. **0.1.2 has not been
+re-tested on that laptop**, so it is unknown whether it now boots, and
+if not, how far it gets.
+
+What 0.1.2 changed for hardware is in `RELEASE_NOTES.md`. What to do with
+the next result:
+
+- **A blank screen after the GRUB menu** — GRUB could not set any
+  graphics mode. Look at `boot/grub/grub.cfg.in` and the framebuffer tag
+  in `arch/x86_64/boot/boot.S`; compare with HavenDOS, which works there.
+- **A log that stops** — the last line names the step. Boot the
+  *verbose boot log* entry and photograph it.
+- **A shell prompt but no keyboard** — the keyboard is USB, or the i8042
+  is absent; there is no USB driver.
+
+Could not be tested in QEMU at all: an APIC in x2APIC mode, and a
+framebuffer physically above 4 GiB.
 
 ## Building and testing
 
@@ -46,9 +71,10 @@ More boot tests, each of which has caught a real bug:
 CPUS=4 ./scripts/run-selftest.sh
 DISK_IF=virtio CPUS=2 ./scripts/run-selftest.sh
 CPU_MODEL=max CPUS=2 ./scripts/run-selftest.sh     # SMEP + SMAP
+MACHINE=q35,pit=off CPUS=2 ./scripts/run-selftest.sh uefi   # no PIT
 ```
 
-## Testing totals at 0.1.1
+## Testing totals at 0.1.2
 
 | Suite | Result |
 |---|---|
@@ -57,8 +83,8 @@ CPU_MODEL=max CPUS=2 ./scripts/run-selftest.sh     # SMEP + SMAP
 | User-mode program's own checks | 15 |
 | Portability | 62 HAL entry points × 2 architectures |
 
-Everything is verified under QEMU 8.2 only. **Never booted on real
-hardware or VMware.**
+Everything is verified under QEMU 8.2 only. On real hardware 0.1.1
+failed to show anything and 0.1.2 is untried; VMware is untried.
 
 ## Rules this project works by
 
@@ -80,14 +106,17 @@ The full list is AUDIT.md section 4. The ones most likely to bite:
 - System calls run with interrupts off.
 - Secondary CPUs come online but get no work (no load balancing).
 - No AHCI, NVMe, USB, mouse or network driver: most real PCs will show no disk.
-- No I/O APIC use; ACPI is MADT only; no power-off.
+- No I/O APIC use; no x2APIC; ACPI is MADT plus the PM timer; no power-off.
+- The framebuffer is not write-combining, so the console is slow on real graphics hardware.
 - Permissions are stored and never checked. No user accounts.
 - FAT long names are read-only.
 - The first byte typed on the serial console can be lost: press Enter once.
 
 ## What to do next
 
-Roadmap milestone **0.1.2 — a process model you can build a shell on**:
+First, get a result from 0.1.2 on the laptop and fix what it shows.
+
+Then roadmap milestone **0.1.3 — a process model you can build a shell on**:
 
 1. Race-free blocking (prepare-to-wait), interrupts on during system calls.
 2. `SYS_spawn(path, argv, envp)`; `execve` with real `argv`.
@@ -97,7 +126,7 @@ Roadmap milestone **0.1.2 — a process model you can build a shell on**:
 6. Load balancing and safe cross-CPU thread reaping.
 7. Shared ABI headers in `include/haven/abi/`.
 
-Then 0.1.3: a libc, a user-space shell and core utilities.
+Then 0.1.4: a libc, a user-space shell and core utilities.
 
 ## Where things are
 
