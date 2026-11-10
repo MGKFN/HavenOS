@@ -122,6 +122,65 @@ C_SRCS := $(foreach d,$(SRC_DIRS) $(ARCH_DIRS),$(wildcard $(d)/*.c))
 S_SRCS := $(foreach d,$(ARCH_DIRS),$(wildcard $(d)/*.S))
 
 OBJS := $(addprefix $(BUILD)/,$(C_SRCS:.c=.o) $(S_SRCS:.S=.o))
+
+.DEFAULT_GOAL := all
+
+# ------------------------------------------------------------ user space
+#
+# Programs that run in ring 3.  There is one so far: the user half of the
+# self-test suite, which is embedded in the kernel image as a byte array so
+# the suite can run a real program on a machine with no disk.
+#
+# User code is compiled with its own flags, not the kernel's: it lives in
+# the low half of the address space (no -mcmodel=kernel), and it is linked
+# against user/lib/$(ARCH), not against the kernel.  An architecture with
+# no user runtime yet gets an empty array and the kernel test skips.
+USER_CFLAGS := -std=gnu11 -O2 -g -ffreestanding -fno-builtin -nostdinc \
+               -fno-stack-protector -fno-pic -fno-pie -mno-red-zone \
+               -fno-asynchronous-unwind-tables -fno-unwind-tables \
+               -fcf-protection=none \
+               -Iuser/include -Iinclude \
+               -isystem $(shell $(CC) -print-file-name=include) \
+               -Wall -Wextra -Werror
+USER_LIB    := user/lib/$(ARCH)
+USER_BLOB_C := $(BUILD)/gen/user_selftest_blob.c
+USER_ELF    := $(BUILD)/user/selftest.elf
+
+ifneq ($(wildcard $(USER_LIB)/crt0.S),)
+$(BUILD)/user/%.o: user/%.c
+	$(Q)mkdir -p $(dir $@)
+	$(Q)echo "  UCC     $<"
+	$(Q)$(CC) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+
+$(BUILD)/user/%.o: user/%.S
+	$(Q)mkdir -p $(dir $@)
+	$(Q)echo "  UAS     $<"
+	$(Q)$(CC) -D__ASSEMBLY__ -Iinclude -MMD -MP -c $< -o $@
+
+$(USER_ELF): $(BUILD)/user/lib/$(ARCH)/crt0.o $(BUILD)/user/selftest/selftest.o \
+             $(USER_LIB)/user.ld
+	$(Q)echo "  ULD     $@"
+	$(Q)$(LD) -nostdlib -static -S --build-id=none -z noexecstack \
+	       -z max-page-size=0x1000 -T $(USER_LIB)/user.ld -o $@ \
+	       $(filter %.o,$^)
+
+$(USER_BLOB_C): $(USER_ELF) tools/bin2c.py
+	$(Q)mkdir -p $(dir $@)
+	$(Q)echo "  BIN2C   $@"
+	$(Q)$(PYTHON) tools/bin2c.py user_selftest_elf $< $@
+else
+$(USER_BLOB_C): tools/bin2c.py
+	$(Q)mkdir -p $(dir $@)
+	$(Q)echo "  BIN2C   $@ (no user runtime for $(ARCH); empty)"
+	$(Q)$(PYTHON) tools/bin2c.py user_selftest_elf - $@
+endif
+
+$(BUILD)/gen/%.o: $(BUILD)/gen/%.c
+	$(Q)echo "  CC      $<"
+	$(Q)$(CC) $(CFLAGS) -c $< -o $@
+
+OBJS += $(BUILD)/gen/user_selftest_blob.o
+DEPS_USER := $(BUILD)/user/lib/$(ARCH)/crt0.d $(BUILD)/user/selftest/selftest.d
 DEPS := $(OBJS:.o=.d)
 
 KERNEL  := $(BUILD)/havenos.elf
@@ -287,4 +346,4 @@ info:
 	@echo "  sources   : $(words $(C_SRCS)) C, $(words $(S_SRCS)) assembly"
 	@echo "  objects   : $(words $(OBJS))"
 
--include $(DEPS)
+-include $(DEPS) $(DEPS_USER)

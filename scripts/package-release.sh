@@ -71,7 +71,7 @@ mkdir -p "$STAGE"
 # Listed explicitly rather than copied wholesale: a release should contain
 # what it says it contains, and `cp -r .` would ship whatever happened to
 # be lying around in the working tree.
-for d in arch kernel fs drivers lib include boot tests tools scripts docs; do
+for d in arch kernel fs drivers lib include user boot tests tools scripts docs; do
 	if [ ! -d "$d" ]; then
 		bad "source directory $d is missing from the working tree"
 		continue

@@ -49,6 +49,9 @@
 /* Offset of the saved CS in struct trapframe; regs.h asserts it. */
 #define TF_CS (18*8)
 
+/* Offset of the FXSAVE area in struct arch_context; context.c asserts it. */
+#define CTX_FPU 16
+
 .macro PUSH_REGS
 	pushq %rax
 	pushq %rbx
@@ -243,7 +246,10 @@ arch_context_switch:
 	pushq %r15
 
 	movq %rsp, 0(%rdi)     /* from->rsp = current stack pointer */
+	fxsave64 CTX_FPU(%rdi) /* from's x87/SSE state; see context.c */
+
 	movq 0(%rsi), %rsp     /* switch to the incoming stack */
+	fxrstor64 CTX_FPU(%rsi)
 
 	popq %r15
 	popq %r14

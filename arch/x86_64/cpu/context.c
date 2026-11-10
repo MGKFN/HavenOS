@@ -31,12 +31,54 @@
 #include <haven/arch/x86_64/memlayout.h>
 #include <haven/console.h>
 
-/* What arch_context_switch() reads and writes.  Only `rsp` is touched by
-   the switch itself; the rest of the state lives on the thread's own
-   stack, which is why this structure is so small. */
+/* What arch_context_switch() reads and writes.  The integer state lives
+   on the thread's own stack, so only `rsp` is recorded for it.
+ *
+ * The FPU/SSE state cannot live on the stack: it is not pushed by
+ * anything, and it belongs to the thread, not to a call frame.  The kernel
+ * is compiled with -mgeneral-regs-only and never touches it, so it never
+ * needs saving on kernel entry -- but two USER programs both use it,
+ * constantly: on x86_64 the compiler reaches for XMM registers to copy and
+ * fill memory.  Without this area, the first pair of programs to run side
+ * by side each resumed with the other's XMM registers and wrote the
+ * other's data into their own memory.
+ *
+ * The switch is eager (saved and restored on every switch, for every
+ * thread) because that is the version with no way to be subtly wrong.
+ * Skipping it for kernel threads is an optimisation for later; AVX state
+ * needs XSAVE and is not enabled, so a program cannot use it yet.
+ *
+ * FXSAVE requires a 16-byte aligned operand.  Both places a context can
+ * live satisfy that: the top of a page-aligned kernel stack minus a
+ * multiple of 16, and a kmalloc() payload.
+ */
+#define FXSAVE_BYTES 512
+
 struct arch_context {
 	uint64_t rsp;
+	uint64_t reserved;
+	uint8_t  fpu[FXSAVE_BYTES];
 };
+
+HAVEN_STATIC_ASSERT(offsetof(struct arch_context, rsp) == 0,
+                    "arch_context_switch in entry.S reads rsp at offset 0");
+HAVEN_STATIC_ASSERT(offsetof(struct arch_context, fpu) == 16,
+                    "CTX_FPU in arch/x86_64/cpu/entry.S is stale");
+HAVEN_STATIC_ASSERT(sizeof(struct arch_context) % 16 == 0,
+                    "an arch_context must keep FXSAVE's 16-byte alignment");
+
+/* The state a thread starts with: what FNINIT and a reset MXCSR give.
+   All-zero bytes are NOT a valid starting image -- a zero MXCSR unmasks
+   every SIMD exception, so the first inexact result would raise #XM. */
+static void fpu_init_image(struct arch_context *ctx)
+{
+	const uint16_t fcw   = 0x037F;   /* x87: all exceptions masked, 64-bit */
+	const uint32_t mxcsr = 0x1F80;   /* SSE: all exceptions masked */
+
+	memset(ctx->fpu, 0, sizeof(ctx->fpu));
+	memcpy(&ctx->fpu[0],  &fcw,   sizeof(fcw));
+	memcpy(&ctx->fpu[24], &mxcsr, sizeof(mxcsr));
+}
 
 /* RFLAGS for a new thread: bit 1 is reserved and must read 1, and IF is
    set so the thread is preemptible from its first instruction.  A thread
@@ -56,6 +98,9 @@ void arch_context_init_kernel(struct arch_context *ctx, vaddr_t stack_top,
 {
 	HAVEN_ASSERT(ctx != NULL);
 	HAVEN_ASSERT(entry != NULL);
+	HAVEN_ASSERT(((vaddr_t)ctx & 15) == 0);
+
+	fpu_init_image(ctx);
 
 	/* The System V ABI requires RSP ≡ 8 (mod 16) at the entry of a
 	   function reached by `call`, because the call pushed a return
@@ -99,6 +144,9 @@ void arch_context_init_user(struct arch_context *ctx, vaddr_t kstack_top,
 	HAVEN_ASSERT(ctx != NULL);
 	HAVEN_ASSERT(is_user_addr(entry));
 	HAVEN_ASSERT(is_user_addr(ustack));
+	HAVEN_ASSERT(((vaddr_t)ctx & 15) == 0);
+
+	fpu_init_image(ctx);
 
 	vaddr_t   top = ALIGN_DOWN(kstack_top, 16);
 	uint64_t *sp  = (uint64_t *)top;
