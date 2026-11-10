@@ -432,6 +432,12 @@ void haven_kmain(struct boot_info *bi)
 	/* The boot thread has nothing left to do.  Rather than spinning, it
 	   becomes a low-priority thread that simply blocks, so the idle
 	   thread takes over and the CPU actually halts between interrupts. */
+	/* Drop to the idle band first.  This loop halts until the next
+	   interrupt, and at normal priority it took turns with real work:
+	   a compute-bound program got every other time slice and the CPU
+	   spent the rest halted with a runnable thread waiting. */
+	thread_set_priority(thread_current(), SCHED_PRIO_LEVELS - 1);
+
 	for (;;) {
 		sched_preempt_if_needed();
 		arch_idle();

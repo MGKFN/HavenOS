@@ -48,6 +48,7 @@
  *    would have no stack to be on.
  */
 #include <haven/sched.h>
+#include <haven/proc.h>
 #include <haven/arch.h>
 #include <haven/mm.h>
 #include <haven/smp.h>
@@ -214,7 +215,20 @@ void sched_switch(void)
 	/* The CPU must find the INCOMING thread's kernel stack in the TSS,
 	   or a user-mode fault in the new thread would push its frame onto
 	   a stack another thread is using. */
-	arch_set_kernel_stack(next->kstack_top);
+	arch_set_kernel_stack(next->kstack_trap_top);
+
+	/* ... and the incoming thread's address space in CR3.  A kernel
+	   thread gets the kernel's own tables rather than borrowing whatever
+	   was loaded: borrowing is faster, but it would leave a CPU running
+	   on the tables of a process that another CPU is free to destroy.
+
+	   Without this, CR3 changed exactly once per process -- when its
+	   thread first ran -- so with two programs alive, each resumed on
+	   whichever address space had been loaded last. */
+	struct arch_pagetable *prev_pt = prev->proc ? prev->proc->pagetable : NULL;
+	struct arch_pagetable *next_pt = next->proc ? next->proc->pagetable : NULL;
+	if (next_pt != prev_pt)
+		arch_pt_switch(next_pt);
 
 	arch_context_switch(prev->context, next->context);
 
@@ -534,6 +548,7 @@ struct thread *thread_create(const char *name, void (*entry)(void *),
 	size_t ctx_size = arch_context_size();
 	t->context = (struct arch_context *)(t->kstack_top - ctx_size);
 	vaddr_t usable_top = ALIGN_DOWN(t->kstack_top - ctx_size, 16);
+	t->kstack_trap_top = usable_top;
 
 	strlcpy(t->name, name ? name : "thread", sizeof(t->name));
 	t->state           = THREAD_NEW;
@@ -543,13 +558,14 @@ struct thread *thread_create(const char *name, void (*entry)(void *),
 	t->home_cpu        = arch_cpu_id();
 	list_init(&t->queue_node);
 	list_init(&t->proc_node);
+	list_init(&t->all_node);
 	list_init(&t->join_waiters);
 
 	arch_context_init_kernel(t->context, usable_top, entry, arg);
 
 	irqflags_t f = sched_lock();
 	t->tid = next_tid++;
-	list_add_tail(&t->proc_node, &all_threads);
+	list_add_tail(&t->all_node, &all_threads);
 	stats.threads_created++;
 	stats.threads_live++;
 	sched_unlock(f);
@@ -611,7 +627,7 @@ int thread_join(struct thread *t)
 	irqflags_t f = sched_lock();
 	if (t->state == THREAD_ZOMBIE) {
 		t->state = THREAD_DEAD;
-		list_del_init(&t->proc_node);
+		list_del_init(&t->all_node);
 		if (stats.threads_live)
 			stats.threads_live--;
 		sched_unlock(f);
@@ -707,6 +723,9 @@ static struct thread *adopt_current_as_thread(const char *name)
 	t->kstack_top = vmm_alloc_kstack();
 	if (!t->kstack_top)
 		panic("sched: cannot allocate a trap stack for the boot thread");
+	/* The boot thread's context is a separate allocation (above), so
+	   nothing shares the top of this stack and traps may start there. */
+	t->kstack_trap_top = t->kstack_top;
 
 	strlcpy(t->name, name, sizeof(t->name));
 	t->state           = THREAD_RUNNING;
@@ -717,11 +736,12 @@ static struct thread *adopt_current_as_thread(const char *name)
 	t->last_scheduled  = arch_time_ns();
 	list_init(&t->queue_node);
 	list_init(&t->proc_node);
+	list_init(&t->all_node);
 	list_init(&t->join_waiters);
 
 	irqflags_t f = sched_lock();
 	t->tid = next_tid++;
-	list_add_tail(&t->proc_node, &all_threads);
+	list_add_tail(&t->all_node, &all_threads);
 	stats.threads_created++;
 	stats.threads_live++;
 	sched_unlock(f);
@@ -747,7 +767,7 @@ void sched_init(void)
 	struct thread *boot = adopt_current_as_thread("kinit");
 	cpu->current = boot;
 	arch_set_current_thread(boot);
-	arch_set_kernel_stack(boot->kstack_top);
+	arch_set_kernel_stack(boot->kstack_trap_top);
 
 	scheduler_active = true;
 
@@ -796,7 +816,7 @@ void sched_init_ap(void)
 	struct thread *boot = adopt_current_as_thread(name);
 	cpu->current = boot;
 	arch_set_current_thread(boot);
-	arch_set_kernel_stack(boot->kstack_top);
+	arch_set_kernel_stack(boot->kstack_trap_top);
 
 	snprintf(name, sizeof(name), "idle/%u", cpu->cpu_id);
 	struct thread *idle = thread_create(name, idle_thread_main, NULL,
@@ -854,7 +874,7 @@ void sched_dump(void)
 
 	irqflags_t f = sched_lock();
 	struct thread *t;
-	list_for_each_entry(t, &all_threads, proc_node) {
+	list_for_each_entry(t, &all_threads, all_node) {
 		kinfo("sched: %4d  %3u  %-9s %6llu  %8llu  %s",
 		      t->tid, t->priority, thread_state_name(t->state),
 		      (unsigned long long)(t->cpu_time_ns / 1000000),
