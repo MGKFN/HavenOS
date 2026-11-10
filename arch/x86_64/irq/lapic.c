@@ -117,6 +117,22 @@ bool lapic_init(void)
 	uint64_t base_msr = rdmsr(MSR_APIC_BASE);
 	paddr_t  phys     = base_msr & APIC_BASE_ADDR_MASK;
 
+	/* In x2APIC mode the registers are MSRs and the memory-mapped page
+	   this driver uses is dead: reads return nothing useful and writes
+	   are ignored.  Firmware on some recent machines hands over in that
+	   mode, and on some it cannot be switched back.  Driving it blind
+	   would give a timer that never ticks and interrupts that are never
+	   acknowledged, so say so and use the legacy path instead.  No
+	   emulator available to this project implements x2APIC, which is
+	   why it is refused here rather than implemented untested. */
+	if (base_msr & APIC_BASE_X2APIC) {
+		kerr("lapic: firmware left the APIC in x2APIC mode, which "
+		     "HavenOS cannot drive yet; falling back to the 8259 PIC "
+		     "and the PIT (one processor, and device interrupts may "
+		     "not arrive)");
+		return false;
+	}
+
 	if (!phys) {
 		kerr("lapic: APIC base MSR reports address 0");
 		return false;
@@ -229,7 +245,7 @@ static uint32_t calibrate_lapic_timer(void)
 	uint64_t per_sec = (elapsed * 1000ULL) / ms;
 
 	kinfo("lapic: timer runs at %llu.%03llu MHz (divisor 16, calibrated "
-	      "against the PIT over %u ms)",
+	      "against the TSC over %u ms)",
 	      (unsigned long long)(per_sec / 1000000),
 	      (unsigned long long)((per_sec / 1000) % 1000), ms);
 

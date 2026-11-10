@@ -34,4 +34,9 @@ struct acpi_info {
 const struct acpi_info *acpi_init(const struct boot_info *bi);
 const struct acpi_info *acpi_get_info(void);
 
+/* Find the ACPI PM timer's I/O port.  Usable before the kernel's page
+   tables are up; `early_limit` is how much physical memory is mapped. */
+bool acpi_early_pm_timer(const struct boot_info *bi, paddr_t early_limit,
+                         uint16_t *port_out, bool *is_32bit_out);
+
 #endif /* _HAVEN_ARCH_X86_64_ACPI_H */

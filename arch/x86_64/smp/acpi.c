@@ -29,6 +29,7 @@
 #include <haven/console.h>
 #include <haven/errno.h>
 #include <haven/string.h>
+#include <haven/mm.h>
 #include <haven/arch/x86_64/acpi.h>
 
 struct HAVEN_PACKED acpi_rsdp {
@@ -115,6 +116,40 @@ static bool checksum_ok(const void *data, size_t len)
 	return sum == 0;
 }
 
+/* How far up physical memory a table may be and still be read.  Zero
+   means anywhere, which is the case once the kernel's own page tables are
+   up.  acpi_early_pm_timer() runs before that, when only the first 4 GiB
+   are mapped, and sets this so a table beyond the map is skipped instead
+   of faulting. */
+static paddr_t reach_limit;
+
+static bool reachable(paddr_t pa)
+{
+	return reach_limit == 0 || pa < reach_limit - (1u << 20);
+}
+
+/*
+ * A pointer to physical memory below 1 MiB, for the legacy RSDP search.
+ *
+ * Early in boot the first megabyte is in boot.S's direct map.  Later it
+ * mostly is not: the kernel's own direct map covers what the firmware
+ * memory map lists, and the BIOS ROM area the specification says to
+ * search (0xE0000-0xFFFFF) is usually a hole in that map.  The search
+ * faulted there on any machine whose loader passed no RSDP.  So once the
+ * kernel's tables are up, the megabyte gets a mapping of its own.
+ */
+static const void *low_memory(paddr_t pa)
+{
+	static vaddr_t low_window;
+
+	if (reach_limit != 0)
+		return (const void *)arch_phys_to_virt(pa);
+
+	if (!low_window)
+		low_window = vmm_map_mmio(0, 0x100000);
+	return low_window ? (const void *)(low_window + pa) : NULL;
+}
+
 /*
  * Find the RSDP.
  *
@@ -136,14 +171,19 @@ static const struct acpi_rsdp *find_rsdp(const struct boot_info *bi)
 		      (unsigned long long)bi->rsdp);
 	}
 
+	const uint8_t *low = low_memory(0);
+	if (!low)
+		return NULL;
+
 	/* The EBDA segment pointer lives at physical 0x40E. */
-	uint16_t ebda_seg = *(const uint16_t *)arch_phys_to_virt(0x40E);
+	uint16_t ebda_seg;
+	memcpy(&ebda_seg, low + 0x40E, sizeof(ebda_seg));
 	paddr_t  ebda     = (paddr_t)ebda_seg << 4;
 
-	if (ebda >= 0x400 && ebda < 0xA0000) {
+	if (ebda >= 0x400 && ebda < 0xA0000 - 1024) {
 		for (paddr_t p = ebda; p < ebda + 1024; p += 16) {
 			const struct acpi_rsdp *r =
-			        (const struct acpi_rsdp *)arch_phys_to_virt(p);
+			        (const struct acpi_rsdp *)(low + p);
 			if (memcmp(r->signature, "RSD PTR ", 8) == 0 &&
 			    checksum_ok(r, 20))
 				return r;
@@ -152,7 +192,7 @@ static const struct acpi_rsdp *find_rsdp(const struct boot_info *bi)
 
 	for (paddr_t p = 0xE0000; p < 0x100000; p += 16) {
 		const struct acpi_rsdp *r =
-		        (const struct acpi_rsdp *)arch_phys_to_virt(p);
+		        (const struct acpi_rsdp *)(low + p);
 		if (memcmp(r->signature, "RSD PTR ", 8) == 0 &&
 		    checksum_ok(r, 20))
 			return r;
@@ -170,7 +210,7 @@ static const struct acpi_header *find_table(const struct acpi_rsdp *rsdp,
 	bool use_xsdt = rsdp->revision >= 2 && rsdp->xsdt_address != 0;
 
 	paddr_t root_pa = use_xsdt ? rsdp->xsdt_address : rsdp->rsdt_address;
-	if (!root_pa)
+	if (!root_pa || !reachable(root_pa))
 		return NULL;
 
 	const struct acpi_header *root =
@@ -207,7 +247,7 @@ static const struct acpi_header *find_table(const struct acpi_rsdp *rsdp,
 			pa = v;
 		}
 
-		if (!pa)
+		if (!pa || !reachable(pa))
 			continue;
 
 		const struct acpi_header *h =
@@ -337,6 +377,57 @@ static void parse_madt(const struct acpi_madt *madt)
 
 		offset += len;
 	}
+}
+
+/*
+ * The ACPI power-management timer: a 3.579545 MHz counter in an I/O port
+ * that the FADT names.  It is the one clock on a PC that firmware cannot
+ * have switched off, which makes it the reference to calibrate against
+ * when the PIT does not answer.
+ *
+ * Callable before the kernel's page tables exist; `early_limit` is how
+ * much physical memory is mapped at that point.  Only the I/O-port form
+ * is used -- a memory-mapped PM timer is legal but vanishingly rare, and
+ * mapping one this early is not worth the code.
+ */
+bool acpi_early_pm_timer(const struct boot_info *bi, paddr_t early_limit,
+                         uint16_t *port_out, bool *is_32bit_out)
+{
+	enum {
+		FADT_PM_TMR_BLK = 76,    /* uint32: I/O port */
+		FADT_PM_TMR_LEN = 91,    /* uint8: 4 if the timer exists */
+		FADT_FLAGS      = 112,   /* uint32 */
+		FADT_MIN_LENGTH = 116,
+		FADT_TMR_VAL_EXT = 1u << 8,   /* counter is 32 bits, not 24 */
+	};
+
+	bool found = false;
+	reach_limit = early_limit;
+
+	const struct acpi_rsdp *rsdp = NULL;
+	/* With no RSDP from the loader, find_rsdp() scans the BIOS areas
+	   below 1 MiB, which are always mapped. */
+	if (!bi->rsdp || reachable(bi->rsdp))
+		rsdp = find_rsdp(bi);
+
+	const struct acpi_header *fadt = rsdp ? find_table(rsdp, "FACP") : NULL;
+
+	if (fadt && fadt->length >= FADT_MIN_LENGTH) {
+		const uint8_t *raw = (const uint8_t *)fadt;
+		uint32_t blk = 0, flags = 0;
+
+		memcpy(&blk,   raw + FADT_PM_TMR_BLK, sizeof(blk));
+		memcpy(&flags, raw + FADT_FLAGS,      sizeof(flags));
+
+		if (blk != 0 && blk <= 0xFFFF && raw[FADT_PM_TMR_LEN] == 4) {
+			*port_out     = (uint16_t)blk;
+			*is_32bit_out = (flags & FADT_TMR_VAL_EXT) != 0;
+			found = true;
+		}
+	}
+
+	reach_limit = 0;
+	return found;
 }
 
 const struct acpi_info *acpi_init(const struct boot_info *bi)
