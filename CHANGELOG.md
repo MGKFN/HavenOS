@@ -7,9 +7,10 @@ uses [semantic versioning](https://semver.org/).
 Versions before 1.0.0 make no interface-stability promise: the kernel API
 is internal and changes without notice.
 
-## [Unreleased]
+## [0.1.1] — 2026-11-10 — "Foundation"
 
-The result of the technical audit in [docs/AUDIT.md](docs/AUDIT.md).
+The release in which HavenOS runs programs. It is the result of the
+technical audit in [docs/AUDIT.md](docs/AUDIT.md).
 
 **0.1.0 could not run a program in user mode.** Its release notes listed
 the user/kernel boundary and the system-call interface as verified; they
@@ -52,6 +53,13 @@ fixes below are what it took to run the first one.
 - `proc_reap()`: lets kernel code wait for and free a process it started.
 - CI on every push: `make check`, plus UEFI, 4-CPU, VirtIO and SMEP/SMAP
   boot tests.
+- `/bin/hello`: a first user program, built from `user/hello` and
+  installed in the root filesystem at boot, so `run /bin/hello` works on a
+  machine with no disk.
+- The kernel shell's `run` passes the rest of its command line to the
+  program as arguments.
+- `tools/make_release_bundle.py` and `HANDOFF.md`: one zip with the ISO,
+  the kernel, the source and the state of the tree.
 - [docs/AUDIT.md](docs/AUDIT.md) and [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ### Changed
@@ -304,4 +312,5 @@ thing that found it is part of the deliverable.
 - **Unprivileged ATA PIO only.** Transfers are synchronous and
   single-sector, which is correct and slow.
 
+[0.1.1]: https://github.com/MGKFN/HavenOS/releases/tag/v0.1.1
 [0.1.0]: https://github.com/MGKFN/HavenOS/releases/tag/v0.1.0

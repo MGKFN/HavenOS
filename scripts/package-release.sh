@@ -88,7 +88,7 @@ for d in arch kernel fs drivers lib include user boot tests tools scripts docs; 
 	done)
 done
 
-for f in Makefile README.md LICENSE CHANGELOG.md RELEASE_NOTES.md .gitignore; do
+for f in Makefile README.md LICENSE CHANGELOG.md RELEASE_NOTES.md HANDOFF.md .gitignore; do
 	if [ -f "$f" ]; then
 		cp -L "$f" "$STAGE/$f"
 	else

@@ -543,9 +543,9 @@ the single source of truth for the HavenOS version.
 
 **`HAVENOS_VERSION_MINOR`** = `1`
 
-**`HAVENOS_VERSION_PATCH`** = `0`
+**`HAVENOS_VERSION_PATCH`** = `1`
 
-**`HAVENOS_VERSION`** = `"0.1.0"`
+**`HAVENOS_VERSION`** = `"0.1.1"`
 
 **`HAVENOS_CODENAME`** = `"Foundation"`
 

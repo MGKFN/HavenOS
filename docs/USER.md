@@ -1,10 +1,10 @@
 # HavenOS user guide
 
-HavenOS 0.1.0 "Foundation" — a 64-bit operating system derived from
+HavenOS 0.1.1 "Foundation" — a 64-bit operating system derived from
 HavenDOS.
 
 This guide covers booting the system and using what it provides. It
-describes version 0.1.0 as it actually behaves, including the parts that
+describes version 0.1.1 as it actually behaves, including the parts that
 are not there yet; see [What is not here](#what-is-not-here) before
 planning anything around it.
 
@@ -31,7 +31,7 @@ planning anything around it.
 
 ## Getting the system
 
-Build the ISO from source — there is no prebuilt image for 0.1.0:
+Build the ISO from source — or download it from the GitHub release:
 
 ```bash
 git clone https://github.com/MGKFN/HavenOS.git
@@ -39,7 +39,7 @@ cd HavenOS
 make iso
 ```
 
-This produces `build/havenos-0.1.0.iso`, a single hybrid image that boots
+This produces `build/havenos-0.1.1.iso`, a single hybrid image that boots
 on both legacy BIOS and 64-bit UEFI firmware. The build needs a stock
 Linux toolchain plus `grub-pc-bin`, `grub-efi-amd64-bin` and `xorriso`;
 [DEVELOPER.md](DEVELOPER.md) lists the exact requirements.
@@ -55,7 +55,7 @@ make run
 That is equivalent to:
 
 ```bash
-qemu-system-x86_64 -m 512 -cdrom build/havenos-0.1.0.iso -boot d \
+qemu-system-x86_64 -m 512 -cdrom build/havenos-0.1.1.iso -boot d \
     -serial stdio -display none
 ```
 
@@ -74,7 +74,7 @@ tables and mounts FAT12, FAT16 and FAT32 volumes:
 
 ```bash
 qemu-img create -f raw disk.img 64M
-qemu-system-x86_64 -m 512 -cdrom build/havenos-0.1.0.iso -boot d \
+qemu-system-x86_64 -m 512 -cdrom build/havenos-0.1.1.iso -boot d \
     -serial stdio -display none \
     -drive file=disk.img,format=raw,if=ide
 ```
@@ -92,7 +92,7 @@ reports.
 Write the ISO to a USB stick and boot it:
 
 ```bash
-sudo dd if=build/havenos-0.1.0.iso of=/dev/sdX bs=4M status=progress oflag=sync
+sudo dd if=build/havenos-0.1.1.iso of=/dev/sdX bs=4M status=progress oflag=sync
 ```
 
 Replace `/dev/sdX` with the whole device, not a partition, and check twice
@@ -122,7 +122,7 @@ than written by hand.
 
 | Entry | Effect |
 |---|---|
-| **HavenOS 0.1.0 (Foundation)** | normal boot |
+| **HavenOS 0.1.1 (Foundation)** | normal boot |
 | **verbose boot log** | `loglevel=debug` — every subsystem's detail, including the full firmware memory map |
 | **single CPU (no SMP)** | `nosmp` — do not start the other processors |
 | **run kernel self-tests and report** | `selftest loglevel=debug` — run the in-kernel suite and print a verdict |
@@ -298,18 +298,31 @@ followed by `sync`.
 enters it in user mode:
 
 ```
-haven:/$ run /mnt/hdap1/hello.elf
+haven:/$ run /bin/hello one two
+Hello from user mode.
+  this is process 1, running in ring 3 with its own address space
+  argument 1: one
+  argument 2: two
 ```
 
-The program gets its own page tables, a user stack, and a 30-call system
-interface — `write`, `read`, `open`, `close`, `exit`, `brk`, `mmap`,
-`nanosleep`, `getpid` and the rest. It cannot read or write kernel memory:
+`/bin/hello` is installed at boot. `run` passes the rest of the line to
+the program as its arguments, waits for it to finish, and reports a
+non-zero exit status. A program on a FAT volume runs the same way:
+`run /mnt/hdap1/HELLO.ELF`.
+
+The program gets its own page tables, a user stack, and a system-call
+interface with 30 numbers assigned and 26 implemented — `write`, `read`,
+`open`, `close`, `exit`, `brk`, `mmap`, `nanosleep`, `getpid` and the
+rest; `fork`, `pipe` and the two thread calls return `-ENOSYS`. It cannot read or write kernel memory:
 the kernel runs with SMEP and SMAP enabled where the CPU has them, and
 every pointer a program passes to a system call is validated and copied
 rather than used in place.
 
 There is no compiler on HavenOS and no C library for it yet, so programs
-have to be built elsewhere. `fork()` is deliberately absent and returns
+are built on the development machine. `user/hello/hello.c` is the
+smallest complete example: add a directory beside it, name it in
+`USER_PROGS` in the Makefile, and it is compiled against `user/lib` and
+`<haven/user.h>`. `fork()` is deliberately absent and returns
 `-ENOSYS` — see [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) for why an
 honest error is better than a half-working implementation.
 

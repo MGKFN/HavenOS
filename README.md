@@ -121,6 +121,7 @@ recommended way to capture a boot on physical machines.
 - [HavenDOS heritage](docs/HAVENDOS_HERITAGE.md) — what was inherited and what changed
 - [Technical audit](docs/AUDIT.md) — what works, what does not, with evidence
 - [Roadmap](docs/ROADMAP.md) — the plan from 0.1 onward
+- [Handoff](HANDOFF.md) — the state of the tree in one page
 - [Release notes](RELEASE_NOTES.md) — this release in detail
 - [Changelog](CHANGELOG.md) — what changed, and what broke on the way
 

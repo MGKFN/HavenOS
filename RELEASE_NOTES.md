@@ -1,10 +1,9 @@
-# HavenOS 0.1.0 "Foundation"
+# HavenOS 0.1.1 "Foundation"
 
-**Released 14 October 2026 · MIT licensed · x86_64**
+**Released 10 November 2026 · MIT licensed · x86_64**
 
-The first release of HavenOS: a 64-bit, preemptive, multi-processor
-operating system derived from
-[HavenDOS](https://github.com/MGKFN/HavenDOS), which is 32-bit and
+HavenOS is a 64-bit, preemptive, multi-processor operating system derived
+from [HavenDOS](https://github.com/MGKFN/HavenDOS), which is 32-bit and
 single-tasking.
 
 This is a hobby operating system under active development. It boots, it
@@ -13,6 +12,79 @@ has no networking. Please read [What is not here](#what-is-not-here)
 before planning anything around it.
 
 ---
+
+## What 0.1.1 is: a correction
+
+**0.1.0 said it ran programs in user mode. It did not.** These notes
+listed "a real user/kernel boundary" and the system-call interface under
+"verified", but nothing in the tree had ever run in ring 3: `/bin` was
+empty and the self-tests never left the kernel. The first program anyone
+tried to run found that every system call returned `-ENOSYS`, that the
+first call taking a pointer hung the machine, and that preempting a user
+program panicked the kernel.
+
+0.1.1 fixes that, and the eleven other defects found behind it, and makes
+it impossible to ship again: the self-test suite now builds a real user
+program, embeds it in the kernel and runs it on every boot test. The full
+account is in [docs/AUDIT.md](docs/AUDIT.md).
+
+### New in 0.1.1
+
+- **Programs run.** ELF64 executables run in ring 3, make system calls,
+  are preempted, are isolated from the kernel and from each other, and are
+  completely reclaimed when they exit.
+- **`/bin/hello`** is installed at boot. Try `run /bin/hello one two`.
+- **`run` is a foreground command**: it passes arguments, waits for the
+  program and reports a non-zero exit status.
+- **`user/`**: a minimal runtime for writing your own programs.
+- **VirtIO disks can be synced.** The flush request was malformed.
+- **Compute-bound work gets the whole CPU.** The boot threads no longer
+  take every other time slice.
+- **CI on every push**: host tests, portability check, and boot tests
+  under BIOS, UEFI, 4 CPUs, VirtIO and SMEP/SMAP.
+
+### Verified in 0.1.1
+
+Observed under QEMU 8.2, not inferred:
+
+| | Result |
+|---|---|
+| Host tests | 842 checks across 7 suites |
+| In-kernel self-tests, BIOS + IDE | 91 checks across 14 tests |
+| In-kernel self-tests, UEFI (OVMF) | 91 of 91 |
+| In-kernel self-tests, 4 CPUs with SMEP and SMAP | 91 of 91, 8 consecutive runs |
+| In-kernel self-tests, VirtIO disk | 91 of 91 |
+| A ring-3 program's own checks | 15 of 15: system calls, rejected pointers, heap, `mmap`, files, registers across a system call and across preemption |
+| Two programs at the same virtual addresses | each keeps its own memory |
+| Reading kernel memory, writing code, executing the stack | each kills the program, not the kernel |
+| Memory after three processes exit | not one page leaked |
+| `make release` | passes, including building from the extracted archive |
+
+**Not verified:** real hardware, VMware, and AArch64. Everything above is
+QEMU. Three concurrency hazards were found by reading the source and have
+not been reproduced or fixed; they are listed in
+[docs/AUDIT.md](docs/AUDIT.md#4-broken-or-incomplete).
+
+### Getting it
+
+The ISO is attached to the
+[GitHub release](https://github.com/MGKFN/HavenOS/releases/tag/v0.1.1), or
+build it:
+
+```bash
+git clone https://github.com/MGKFN/HavenOS.git
+cd HavenOS
+make iso          # build/havenos-0.1.1.iso
+make run          # boot it under QEMU with the log on your terminal
+```
+
+---
+
+# The 0.1.0 notes
+
+What follows is the text of the 0.1.0 release notes, kept because the
+description of the kernel still stands. Read its claims about user mode
+and the system-call interface in the light of the correction above.
 
 ## What this release is
 

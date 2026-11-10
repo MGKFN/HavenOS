@@ -118,7 +118,7 @@ extension glibc does not implement, so a wrong link fails loudly.
 
 ### In-kernel tests — `make selftest`
 
-82 checks that need a real CPU: whether a context switch returns to the
+91 checks that need a real CPU: whether a context switch returns to the
 right stack, whether the timer actually preempts a spinning thread,
 whether interrupt-state save/restore nests, whether the FAT driver agrees
 with mtools.

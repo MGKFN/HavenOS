@@ -23,15 +23,11 @@ says what order to build things in and why.
 3. **QEMU before hardware, then one real machine early.** Real-hardware bring-up finds a different class of bug; do it at 0.1.3, not at 1.0.
 4. **Small releases.** Each one below is a few weeks at most and leaves `main` bootable.
 
-## 0.1.1 — "It runs programs" (this branch)
+## 0.1.1 — "It runs programs" (released 2026-11-10)
 
-Merge `dev/0.1-audit`. Contents are in AUDIT.md section 6: ring 3 works,
-is tested on every push, and nothing leaks.
-
-Before tagging:
-- [ ] Review and merge the branch.
-- [ ] Correct `RELEASE_NOTES.md`: the 0.1.0 "verified" table claimed a user/kernel boundary that had not been exercised.
-- [ ] Bump `include/haven/version.h` to 0.1.1.
+Done. Ring 3 works, is tested on every push, and nothing leaks; the
+release notes carry the correction to 0.1.0. Contents are in AUDIT.md
+section 6, plus `/bin/hello` and arguments for `run`.
 
 ## 0.1.2 — A process model you can build a shell on
 

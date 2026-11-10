@@ -258,7 +258,7 @@ In order, because each step depends on the one before:
    same allocator; this proves the memory map was parsed correctly.
 3. **`mm_startup_verify()` passes.** Stage 6 of `kernel/main.c` exercises
    all three allocators before anything depends on them.
-4. **The in-kernel self-tests pass.** 82 checks, including four spinning
+4. **The in-kernel self-tests pass.** 91 checks, including four spinning
    threads that must share a CPU through timer preemption, and a 100 ms
    sleep that must take about 100 ms. These are the checks that catch a
    context switch returning to the wrong stack — which is the single most

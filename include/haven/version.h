@@ -20,9 +20,9 @@
 
 #define HAVENOS_VERSION_MAJOR 0
 #define HAVENOS_VERSION_MINOR 1
-#define HAVENOS_VERSION_PATCH 0
+#define HAVENOS_VERSION_PATCH 1
 
-#define HAVENOS_VERSION   "0.1.0"
+#define HAVENOS_VERSION   "0.1.1"
 #define HAVENOS_CODENAME  "Foundation"
 #define HAVENOS_COPYRIGHT "Copyright (c) 2026 KUNIX / Tech Haven Studios - MIT licensed"
 
